@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Studyflow</title>
+  <meta name="description" content="Studyflow giúp sinh viên quản lý môn học, lập kế hoạch bài tập và xếp lịch vào giờ rảnh.">
+  <meta name="theme-color" content="#145C40">
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css?v=64">
+  <script>
+    try {
+      var saved = localStorage.getItem('sf-theme')
+      var theme = saved === 'light' || saved === 'dark'
+        ? saved
+        : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      document.documentElement.setAttribute('data-theme', theme)
+      var token = getComputedStyle(document.documentElement).getPropertyValue(theme === 'dark' ? '--bg' : '--brand').trim()
+      if (token) document.querySelector('meta[name="theme-color"]').content = token
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="push"></div>
+  <script type="module" src="./js/app.js?v=64"></script>
+</body>
+</html>
