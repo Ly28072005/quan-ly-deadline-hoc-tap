@@ -2,14 +2,14 @@ import { createStore } from './store.js'
 import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual,
-} from './model.js?v=64'
+} from './model.js?v=65'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=64'
-import { askClaude, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, probeClaude, setClaudeKey } from './claude.js?v=64'
-import { esc, icon, logo } from './html.js?v=64'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=64'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=64'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=64'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=65'
+import { askClaude, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, probeClaude, setClaudeKey } from './claude.js?v=65'
+import { esc, icon, logo } from './html.js?v=65'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=65'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=65'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=65'
 
 const store = createStore()
 const NAV = [
@@ -290,6 +290,10 @@ function render() {
     return
   }
   if (isAuth(route.name)) { location.hash = '#/'; return }
+  const active = document.activeElement
+  const focusAi = active?.dataset?.act === 'ai-field'
+    ? { id: active.dataset.id, key: active.dataset.key }
+    : null
   settleSchedule()
   prepare()
   captureDrafts()
@@ -298,6 +302,10 @@ function render() {
   root.innerHTML = shell(page)
   const scroller = root.querySelector('[data-scroll="cal"]')
   if (scroller) scroller.scrollTop = 44
+  if (focusAi?.id && focusAi?.key) {
+    const nextEl = root.querySelector(`[data-act="ai-field"][data-id="${focusAi.id}"][data-key="${focusAi.key}"]`)
+    if (nextEl) nextEl.focus()
+  }
 }
 
 function pageOf(ctx) {
@@ -588,7 +596,7 @@ function confirmAi() {
     tasks: ai.tasks,
   }
   store.savePlan(built)
-  const moved = reflowAll(store.snapshot())
+  const moved = ai.dirtyTimes ? [] : reflowAll(store.snapshot())
   for (const plan of moved) store.savePlan(plan)
   const count = leafTasks(built.tasks).length
   aiKey = ''
@@ -885,6 +893,24 @@ function onClick(event) {
   if (act === 'ai-rebuild') rebuildAi()
   if (act === 'ai-add') { ai.tasks.push({ id: uid('t'), parentId: '', name: 'Nhiệm vụ mới', hours: 1.5, start: 0, end: 0, status: 'todo', description: '', files: [], doneAt: 0 }); render() }
   if (act === 'ai-del') { ai.tasks = ai.tasks.filter((task) => task.id !== node.dataset.id && task.parentId !== node.dataset.id); render() }
+  if (act === 'hours-step' && ai) {
+    const stepTask = ai.tasks.find((t) => t.id === node.dataset.id)
+    if (stepTask) {
+      const dir = Number(node.dataset.dir)
+      const cur = stepTask.hours !== undefined && stepTask.hours !== '' ? Number(stepTask.hours) : 1
+      const base = Number.isFinite(cur) ? cur : 1
+      const next = Math.max(0, Math.min(24, Math.round((base + dir * 0.5) * 2) / 2))
+      applyAiHours(stepTask.id, next)
+    }
+    return
+  }
+  if (act === 'ai-set-hours' && ai) {
+    const targetHours = Number(node.dataset.hours)
+    if (Number.isFinite(targetHours) && targetHours > 0) {
+      applyAiHours(node.dataset.id, targetHours)
+    }
+    return
+  }
   if (act === 'ai-fix') { applyAiFix(node.dataset.id, node.dataset.start, node.dataset.end); return }
   if (act === 'ai-need-free' || act === 'ai-add-free' || act === 'hour-add-free') {
     modal = null
@@ -1021,6 +1047,7 @@ function applyAiFix(id, startRaw, endRaw) {
     end = fix.end
   }
   task.needFree = 0
+  ai.dirtyTimes = true
   ai.tasks = placeTaskWindow(ai.tasks, id, start, end, store.snapshot(), ai.deadline, ai.planId)
   render()
   toast('Đã xếp vào khung trống gần nhất')
@@ -1084,7 +1111,18 @@ function onInput(event) {
     if (field.dataset.field === 'sch-repeat') row.repeat = field.value
   }
   const aiField = event.target.closest('[data-act="ai-field"]')
-  if (aiField && ai && aiField.dataset.key !== 'hours') patchAi(aiField)
+  if (aiField && ai) {
+    if (aiField.dataset.key === 'hours') {
+      const raw = String(aiField.value ?? '').trim()
+      if (raw === '' || /[.,]$/.test(raw)) return
+      const num = Number(raw.replace(',', '.'))
+      if (!Number.isFinite(num)) return
+      patchAi(aiField)
+      render()
+      return
+    }
+    patchAi(aiField)
+  }
   const manField = event.target.closest('[data-act="man-field"]')
   if (manField && manual) {
     const row = manual.tasks.find((task) => task.id === manField.dataset.id)
@@ -1131,29 +1169,40 @@ function compressPreview() {
   toast('Đã nén nhiệm vụ dự phòng của môn hạn xa và xếp lại lịch.')
 }
 
+function applyAiHours(taskId, hours) {
+  if (!ai) return
+  const task = ai.tasks.find((item) => item.id === taskId)
+  if (!task) return
+  ai.dirtyTimes = true
+  ai.pendingHours = { id: task.id, hours }
+  if (!(hours > 0) || hours > 24) {
+    task.hours = Number.isFinite(hours) ? hours : 0
+    task.needFree = 0
+    render()
+    return
+  }
+  const result = applyHoursChange(ai.tasks, task.id, hours, store.snapshot(), ai.deadline, ai.planId)
+  ai.tasks = result.tasks
+  render()
+}
+
 function patchAi(node) {
   const task = ai.tasks.find((item) => item.id === node.dataset.id)
   if (!task) return
   const key = node.dataset.key
   if (key === 'name') task.name = node.value
   if (key === 'hours') {
-    const hours = Number(node.value)
-    const hard = hourHardError({ ...task, hours }, store.snapshot(), ai.deadline, ai.planId)
+    const raw = String(node.value ?? '').trim().replace(',', '.')
+    const hours = raw === '' ? 0 : Number(raw)
+    ai.dirtyTimes = true
     ai.pendingHours = { id: task.id, hours }
-    if (hard?.code === 'hours-zero' || hard?.code === 'hours-day') {
-      task.hours = hours
-      if (ai.planId) ai.dirtyTimes = true
-      return
-    }
-    if (hard?.code === 'hours-free') {
-      task.hours = hours
-      task.needFree = hours
-      if (ai.planId) ai.dirtyTimes = true
+    if (!(hours > 0) || hours > 24) {
+      task.hours = Number.isFinite(hours) ? hours : 0
+      task.needFree = 0
       return
     }
     const result = applyHoursChange(ai.tasks, task.id, hours, store.snapshot(), ai.deadline, ai.planId)
     ai.tasks = result.tasks
-    if (ai.planId) ai.dirtyTimes = true
     return
   }
   const day = key === 'date' ? isoOf(node.value) : (task.start ? dateISO(task.start) : '')
@@ -1162,7 +1211,7 @@ function patchAi(node) {
   if ((key === 'date' || key === 'start' || key === 'end') && day) {
     task.start = atTime(day, start)
     task.end = atTime(day, end)
-    if (ai.planId) ai.dirtyTimes = true
+    ai.dirtyTimes = true
   }
 }
 

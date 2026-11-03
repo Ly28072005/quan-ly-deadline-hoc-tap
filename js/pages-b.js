@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, parseStamp, showDate, showStamp } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=64'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=64'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=65'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=65'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -201,7 +201,8 @@ function reviewRows(tasks, ctx) {
   const leaves = tasks.filter((task) => !isParent(task, tasks))
   const parents = tasks.filter((task) => isParent(task, tasks))
   const planShort = !!ctx.planShort
-  if (!parents.length) return leaves.map((task, index) => taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort)).join('')
+  const pendingId = ctx.ai?.pendingHours?.id || ''
+  if (!parents.length) return leaves.map((task, index) => taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort, pendingId)).join('')
   let index = 0
   const seen = new Set()
   const chunks = []
@@ -209,13 +210,13 @@ function reviewRows(tasks, ctx) {
     chunks.push(`<p class="k">${esc(parent.name)}</p>`)
     for (const task of leaves.filter((item) => item.parentId === parent.id)) {
       seen.add(task.id)
-      chunks.push(taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort))
+      chunks.push(taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort, pendingId))
       index += 1
     }
   }
   for (const task of leaves) {
     if (seen.has(task.id)) continue
-    chunks.push(taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort))
+    chunks.push(taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort, pendingId))
     index += 1
   }
   return chunks.join('')
@@ -229,28 +230,64 @@ function fixAction(task, fix) {
 
 function freeNeedText(task, hours) {
   const need = Number(task.needFree) > 0 ? Number(task.needFree) : hours
-  return `Quỹ thời gian rảnh không đủ ${formatHours(need)} giờ cho nhiệm vụ này. Cần bổ sung thêm ${formatHours(need)} giờ rảnh.`
+  return `Quỹ thời gian rảnh không đủ ${formatHours(hours)} giờ cho nhiệm vụ này (thiếu ${formatHours(need)} giờ rảnh). Hãy bổ sung thêm thời gian rảnh.`
 }
 
-function taskEditor(task, index, tasks, data, deadline, ignorePlanId, planShort = false) {
+function taskEditor(task, index, tasks, data, deadline, ignorePlanId, planShort = false, pendingId = '') {
   const warnings = taskWarningsOf(task, tasks, data, deadline, ignorePlanId)
   const fix = warnings.length ? ctxFix(task, tasks, data, deadline, ignorePlanId) : null
-  const hours = Number(task.hours) || 0
-  const placed = task.start && task.end && task.end > task.start ? (task.end - task.start) / 3600000 : 0
-  const clash = warnings.some((item) => ['overlap', 'hours', 'free', 'parent', 'class'].includes(item.code))
-  const grow = hours > placed + 0.05
+  const rawHours = task.hours !== undefined && task.hours !== null && task.hours !== '' ? Number(task.hours) : 1
+  const hours = Number.isFinite(rawHours) ? rawHours : 0
+  const rec = recommendedHoursForTask(task)
+  const zeroHours = !(hours > 0)
+  const overlapForeign = warnings.find((item) => item.code === 'overlap-foreign' || item.code === 'class')
+  const overlapSame = warnings.find((item) => item.code === 'overlap')
   const needFree = fix?.kind === 'free' || Number(task.needFree) > 0 || warnings.some((item) => item.code === 'free')
-  let strips = warnings.map((item, n) => `<div class="alert-strip ${item.level}">${esc(item.text)}${n === 0 && fix?.kind !== 'free' ? fixAction(task, fix) : ''}</div>`).join('')
-  if (planShort) strips = ''
-  else if (clash && grow && needFree) {
-    strips = `<div class="alert-strip bad">${esc(freeNeedText(task, hours))}<a class="btn btn-ghost" href="#/lich/ranh">Thêm giờ rảnh</a></div>`
-  } else if (clash && grow && fix) {
-    strips = `<div class="alert-strip bad">${esc(`Tăng lên ${formatHours(hours)}h gây trùng lịch.`)}${fixAction(task, fix)}</div>`
+  const alertList = []
+
+  if (zeroHours) {
+    alertList.push(`<div class="alert-strip bad">❌ Thời lượng nhiệm vụ phải lớn hơn 0 giờ (tối thiểu 0,5 giờ).<button type="button" data-act="ai-set-hours" data-id="${task.id}" data-hours="${rec}">Đặt lại ${formatHours(rec)}h</button></div>`)
+  } else if (overlapForeign) {
+    if (fix && fix.kind === 'move' && !(Number(task.needFree) > 0)) {
+      alertList.push(`<div class="alert-strip bad">⚠️ ${esc(overlapForeign.text)}${fixAction(task, fix)}</div>`)
+    } else {
+      alertList.push(`<div class="alert-strip bad">⚠️ ${esc(overlapForeign.text)} Quỹ thời gian rảnh không còn khung trống ${formatHours(hours)}h.<a class="btn btn-ghost" href="#/lich/ranh">Thêm giờ rảnh</a></div>`)
+    }
+  } else if (needFree) {
+    if (fix && fix.kind === 'move' && !(Number(task.needFree) > 0)) {
+      const freeWarn = warnings.find((item) => item.code === 'free')?.text || `Khung hiện tại không đủ ${formatHours(hours)} giờ rảnh.`
+      alertList.push(`<div class="alert-strip bad">${esc(freeWarn)}${fixAction(task, fix)}</div>`)
+    } else {
+      alertList.push(`<div class="alert-strip bad">${esc(freeNeedText(task, hours))}<a class="btn btn-ghost" href="#/lich/ranh">Thêm giờ rảnh</a></div>`)
+    }
+  } else if (overlapSame) {
+    alertList.push(`<div class="alert-strip bad">⚠️ ${esc(overlapSame.text)}${fix ? fixAction(task, fix) : ''}</div>`)
+  } else if (warnings.length) {
+    const visible = planShort && pendingId !== task.id
+      ? warnings.filter((item) => item.code !== 'missing')
+      : warnings
+    visible.forEach((item, n) => {
+      alertList.push(`<div class="alert-strip ${item.level}">${esc(item.text)}${n === 0 && fix ? fixAction(task, fix) : ''}</div>`)
+    })
   }
+
+  if (!zeroHours && hours > rec + 0.05) {
+    alertList.push(`<div class="alert-strip info">🤖 Gợi ý AI: Nhiệm vụ “${esc(task.name)}” theo độ khó chỉ cần khoảng ${formatHours(rec)} giờ làm.<button type="button" data-act="ai-set-hours" data-id="${task.id}" data-hours="${rec}">Đặt ${formatHours(rec)} giờ</button></div>`)
+  } else if (!zeroHours && pendingId === task.id && hours < rec - 0.05) {
+    alertList.push(`<div class="alert-strip info">🤖 Gợi ý AI: Nhiệm vụ “${esc(task.name)}” có độ khó nên dành khoảng ${formatHours(rec)} giờ làm.<button type="button" data-act="ai-set-hours" data-id="${task.id}" data-hours="${rec}">Đặt ${formatHours(rec)} giờ</button></div>`)
+  }
+
+  const strips = alertList.join('')
+  const badBox = zeroHours || warnings.some((item) => item.level === 'bad') ? ' bad' : ''
+  const hoursInput = `<div class="hours-stepper${badBox}">
+    <button class="step-btn" type="button" data-act="hours-step" data-id="${task.id}" data-dir="-1" title="Giảm 0,5 giờ" aria-label="Giảm 0.5h">−</button>
+    <input class="input hours-input" type="number" min="0" max="24" step="0.5" data-act="ai-field" data-id="${task.id}" data-key="hours" value="${hours}" aria-label="Số giờ">
+    <button class="step-btn" type="button" data-act="hours-step" data-id="${task.id}" data-dir="1" title="Tăng 0,5 giờ" aria-label="Tăng 0.5h">+</button>
+  </div>`
   return `<div class="tr">
     <span class="num">${index + 1}</span>
     <input class="input" data-act="ai-field" data-id="${task.id}" data-key="name" value="${esc(task.name)}">
-    <input class="input" type="number" min="0" step="0.5" data-act="ai-field" data-id="${task.id}" data-key="hours" value="${task.hours ?? 1}">
+    ${hoursInput}
     ${wrapDate(`<input class="input" data-act="ai-field" data-id="${task.id}" data-key="date" placeholder="dd/mm/yyyy" inputmode="numeric" value="${task.start ? showDate(dateISO(task.start)) : ''}">`, task.start ? dateISO(task.start) : '')}
     <input class="input" type="time" data-act="ai-field" data-id="${task.id}" data-key="start" value="${task.start ? clock(task.start) : ''}">
     <input class="input" type="time" data-act="ai-field" data-id="${task.id}" data-key="end" value="${task.end ? clock(task.end) : ''}">

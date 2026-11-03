@@ -3,7 +3,7 @@
   formatISO, formatSpan, formatWhen, isoOf, minutes, pad, parseDate, roundUp30, startOfDay, uid, weekdayMon,
 } from './format.js'
 import { composeTutor } from './tutor.js'
-import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=64'
+import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=65'
 
 export { estimateWorkload, roundHalf }
 
@@ -247,11 +247,8 @@ function slotStamp(start, end) {
   return `${formatWhen(start)} ${clock(start)} – ${clock(end)}`
 }
 
-function fixedBlocks(data, ignorePlanId, from, until, deadline = 0) {
-  const hard = (deadline
-    ? guardTasks(data, ignorePlanId, deadline, Date.now())
-    : foreignLeaves(data, ignorePlanId)
-  ).filter((item) => item.end > from && item.start < until)
+function fixedBlocks(data, ignorePlanId, from, until) {
+  const hard = foreignLeaves(data, ignorePlanId).filter((item) => item.end > from && item.start < until)
   return classIntervals(data.courses, from, until).map((item) => [item.start, item.end])
     .concat(hard.map((item) => [item.start, item.end]))
 }
@@ -261,28 +258,34 @@ export function proposeFix(task, tasks, data, deadline, ignorePlanId = '') {
   const duration = hours * 3600000
   const from = Date.now()
   const until = deadline || from
-  const blocked = fixedBlocks(data, ignorePlanId, from, until, deadline).concat(blocksOf(tasks, task.id))
-  const preferred = findWindow({ duration, from, until, freeSlots: data.freeSlots, blocked })
+  const blocked = fixedBlocks(data, ignorePlanId, Math.min(from, task.start || from), until).concat(blocksOf(tasks, task.id))
+  const preferred = findWindow({
+    duration,
+    from: Math.max(from, task.start ? startOfDay(task.start) : from),
+    until,
+    freeSlots: data.freeSlots,
+    blocked,
+  }) || findWindow({ duration, from, until, freeSlots: data.freeSlots, blocked })
   if (!preferred) return { kind: 'free', hours, label: 'Thêm giờ rảnh' }
   return {
     kind: 'move',
     hours,
     start: preferred.start,
     end: preferred.end,
-    label: `Xếp vào khung ${formatHours(hours)}h trống gần nhất: ${slotStamp(preferred.start, preferred.end)}`,
+    label: `Chuyển sang khung ${formatHours(hours)}h trống gần nhất: ${slotStamp(preferred.start, preferred.end)}`,
   }
 }
 
 function cascadeLeaves(tasks, pivot, data, deadline, ignorePlanId) {
   const from = Date.now()
   const until = deadline || pivot.end
-  const foreign = fixedBlocks(data, ignorePlanId, from, until, deadline)
+  const foreign = fixedBlocks(data, ignorePlanId, Math.min(from, pivot.start || from), until)
   const leaves = leafTasks(tasks)
     .filter((task) => task.status !== 'done' && task.start && task.end)
     .sort((a, b) => a.start - b.start || a.end - b.end)
   const index = leaves.findIndex((task) => task.id === pivot.id)
   if (index < 0) return
-  const placed = [pivot]
+  const placed = leaves.slice(0, index + 1)
   for (let i = index + 1; i < leaves.length; i += 1) {
     const task = leaves[i]
     const duration = Math.max(STEP, (taskHours(task) || 0.5) * 3600000)
@@ -294,7 +297,13 @@ function cascadeLeaves(tasks, pivot, data, deadline, ignorePlanId) {
     }
     const window = findWindow({
       duration,
-      from: Math.max(from, placed[placed.length - 1].end),
+      from: Math.max(from, pivot.end, task.start),
+      until,
+      freeSlots: data.freeSlots,
+      blocked,
+    }) || findWindow({
+      duration,
+      from: Math.max(from, pivot.end),
       until,
       freeSlots: data.freeSlots,
       blocked,
@@ -316,6 +325,7 @@ export function placeTaskWindow(tasks, taskId, start, end, data, deadline, ignor
   if (!task || !start || !end) return next
   task.start = start
   task.end = end
+  task.needFree = 0
   if (!(Number(task.hours) > 0)) task.hours = (end - start) / 3600000
   cascadeLeaves(next, task, data, deadline, ignorePlanId)
   refreshParents(next)
@@ -336,29 +346,96 @@ export function applyHoursChange(tasks, taskId, hours, data, deadline, ignorePla
   const wantEnd = task.start + need
   const from = Date.now()
   const until = deadline || wantEnd
-  const fixed = fixedBlocks(data, ignorePlanId, Math.min(from, task.start), until, deadline)
+  const minFrom = Math.min(from, task.start)
+  const foreign = foreignLeaves(data, ignorePlanId).filter((item) => item.end > minFrom && item.start < until)
+  const classes = classIntervals(data.courses, minFrom, until)
+  const fixed = classes.map((item) => [item.start, item.end]).concat(foreign.map((item) => [item.start, item.end]))
+
+  // Kiem tra trung lich voi mon khac hoac lich hoc tren lop
+  const hitForeign = foreign.some((item) => overlaps(task.start, wantEnd, item.start, item.end))
+  const hitClass = classes.some((item) => overlaps(task.start, wantEnd, item.start, item.end))
+  if (hitForeign || hitClass) {
+    task.end = wantEnd
+    refreshParents(next)
+    const window = findWindow({
+      duration: need,
+      from: Math.max(from, startOfDay(task.start)),
+      until,
+      freeSlots: data.freeSlots,
+      blocked: fixed.concat(blocksOf(next, taskId)),
+    }) || findWindow({
+      duration: need,
+      from,
+      until,
+      freeSlots: data.freeSlots,
+      blocked: fixed.concat(blocksOf(next, taskId)),
+    })
+    if (window) return { tasks: next, kind: 'need-slot', hours, window }
+    task.needFree = hours
+    return { tasks: next, kind: 'need-free', hours, hints: suggestFreeAdds(data, from, until, hours) }
+  }
+
+  // Neu cac mon khac chua xep vao gio do va ca ranh hien tai du cho:
+  // -> Cho chinh gio tai cho va day lui cac nhiem vu cung mon (khong day lui mon khac)
   const keep = wantEnd <= startOfDay(task.start) + DAY && slotFree(task.start, wantEnd, data.freeSlots, fixed)
   if (keep) {
+    const snapshot = next.map((item) => ({ ...item }))
     task.end = wantEnd
     cascadeLeaves(next, task, data, deadline, ignorePlanId)
     refreshParents(next)
     const leftover = leafTasks(next).filter((item) => item.status !== 'done' && item.id !== taskId && !item.start)
     if (leftover.length) {
       const miss = leftover.reduce((sum, item) => sum + taskHours(item), 0)
-      task.needFree = hours
+      for (let i = 0; i < next.length; i += 1) {
+        if (next[i].id !== taskId) {
+          next[i].start = snapshot[i].start
+          next[i].end = snapshot[i].end
+        }
+      }
+      refreshParents(next)
+      task.needFree = Math.max(hours, roundHalf(miss))
       return { tasks: next, kind: 'need-free', hours, hints: suggestFreeAdds(data, from, until, miss) }
     }
     return { tasks: next, kind: 'ok' }
   }
-  const window = findWindow({
+
+  // Neu ca ranh hien tai khong du do dai nhung van con thoi gian ranh o khung khac (khong trung mon khac):
+  // -> Thu doi sang khung gio ranh du do dai va day lui cac nhiem vu cung mon
+  const trial = next.map((item) => ({ ...item, files: item.files || [] }))
+  const trialTask = trial.find((item) => item.id === taskId)
+  const priorBlocks = fixed.concat(
+    leafTasks(trial)
+      .filter((item) => item.id !== taskId && item.status !== 'done' && item.start && item.end && item.start < task.start)
+      .map((item) => [item.start, item.end]),
+  )
+  const movedWindow = findWindow({
+    duration: need,
+    from: Math.max(from, task.start),
+    until,
+    freeSlots: data.freeSlots,
+    blocked: priorBlocks,
+  }) || findWindow({
     duration: need,
     from,
     until,
     freeSlots: data.freeSlots,
-    blocked: fixed.concat(blocksOf(next, taskId)),
+    blocked: fixed.concat(blocksOf(trial, taskId)),
   })
-  if (window) return { tasks: next, kind: 'need-slot', hours, window }
+  if (movedWindow) {
+    trialTask.start = movedWindow.start
+    trialTask.end = movedWindow.end
+    cascadeLeaves(trial, trialTask, data, deadline, ignorePlanId)
+    refreshParents(trial)
+    const leftover = leafTasks(trial).filter((item) => item.status !== 'done' && item.id !== taskId && !item.start)
+    if (!leftover.length) {
+      return { tasks: trial, kind: 'ok', window: movedWindow }
+    }
+  }
+
+  // Het khung thoi gian ranh -> De xuat bo sung thoi gian ranh
+  task.end = wantEnd
   task.needFree = hours
+  refreshParents(next)
   return { tasks: next, kind: 'need-free', hours, hints: suggestFreeAdds(data, from, until, hours) }
 }
 
@@ -421,11 +498,11 @@ function coveredFreeHours(start, end, freeSlots) {
 
 export function hourHardError(task, data, deadline, ignorePlanId = '') {
   const hours = Number(task.hours)
-  if (!(hours > 0)) return { level: 'bad', code: 'hours-zero', text: '❌ Thời lượng nhiệm vụ phải lớn hơn 0 phút.' }
+  if (!(hours > 0)) return { level: 'bad', code: 'hours-zero', text: '❌ Thời lượng nhiệm vụ phải lớn hơn 0 giờ (tối thiểu 0,5 giờ).' }
   if (hours > 24) return { level: 'bad', code: 'hours-day', text: '❌ Thời lượng nhiệm vụ không thể vượt quá 24 giờ trong một ca.' }
   const until = deadline || task.end || 0
   if (until > Date.now()) {
-    const free = openHours(data, Date.now(), until, ignorePlanId, until)
+    const free = openHours(data, Date.now(), until, ignorePlanId, 0)
     if (hours > free + 0.05) return { level: 'bad', code: 'hours-free', text: '❌ Số giờ nhập vào vượt quá toàn bộ tổng quỹ thời gian rảnh còn lại.' }
   }
   return null
@@ -470,10 +547,10 @@ export function taskWarnings(task, tasks, data, deadline, parent, ignorePlanId =
       warnings.push({ level: 'bad', code: 'overlap', text: `Khung giờ này đã có nhiệm vụ ‘${other.name}’ (${formatSpan(other.start, other.end)}).` })
     }
   }
-  for (const other of guardTasks(data, ignorePlanId, deadline, Date.now())) {
+  for (const other of foreignLeaves(data, ignorePlanId)) {
     if (other.id === task.id || !overlaps(task.start, task.end, other.start, other.end)) continue
     const who = other.courseName ? `môn ${other.courseName}` : (other.planName || 'kế hoạch khác')
-    warnings.push({ level: 'bad', code: 'overlap', text: `Khung giờ này đã có nhiệm vụ ‘${other.name}’ của ${who} (${formatSpan(other.start, other.end)}).` })
+    warnings.push({ level: 'bad', code: 'overlap-foreign', text: `Trùng lịch với nhiệm vụ ‘${other.name}’ của ${who} (${formatSpan(other.start, other.end)}).` })
   }
   const placed = spanHours(task.start, task.end)
   if (course?.start && task.start < atTime(course.start, '00:00')) {
@@ -602,11 +679,17 @@ function itemWeight(item) {
 // 1.5h - phan tich, nghien cuu, thuyet trinh, slide, viet bai/essay
 // 1h  - tom tat, ke hoach, tong hop, nhan xet
 // 0.5h - doc, on lai, kiem tra nhanh, va moi thu con lai
+export function recommendedHoursForTask(task) {
+  const byKeyword = minHoursForItem({ name: task?.name || '', text: task?.description || '' })
+  const base = Number(task?.baseHours) || 0
+  return Math.max(0.5, byKeyword || base || 1)
+}
+
 function minHoursForItem(item) {
   const src = fold(`${item.name || ''} ${item.text || ''}`)
   if (/(code|lap trinh|api|endpoint|rest|lab|sql|truy van|bpmn|usecase|erd|uml|kien truc|prototype|wireframe|persona|demo|dashboard|bao cao|luan van|luan|toan|do thi|bieu do|so do)/.test(src)) return 2
-  if (/(phan tich|analysis|research|nghien cuu|thuyet trinh|slide|powerpoint|viet|essay|paper|bai bao|thiet ke|design|tong hop|trich xuat|phong van|interview)/.test(src)) return 1.5
-  if (/(tom tat|ke hoach|plan|muc tieu|review|kiem tra|chu thich|ghi chu|tinh huong|nhan xet)/.test(src)) return 1
+  if (/(phan tich|analysis|research|nghien cuu|thuyet trinh|slide|powerpoint|viet|essay|paper|bai bao|thiet ke|design|tong hop|trich xuat|phong van|interview|journey|flow|insight|ideate|findings|iteration|usability)/.test(src)) return 1.5
+  if (/(tom tat|ke hoach|plan|muc tieu|review|kiem tra|chu thich|ghi chu|tinh huong|nhan xet|scope|goal|statement|space|evidence|scenario|participants|learning|survey|idea|pain point|how might|pov|value proposition|mvp)/.test(src)) return 1
   return 0.5
 }
 
