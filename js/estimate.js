@@ -103,7 +103,7 @@ export function splitPhases(hBase) {
 }
 
 export function sittingsOf(hours) {
-  const start = roundHalf(Math.max(1, hours))
+  const start = roundHalf(Math.max(0.5, hours))
   if (start <= 2) return [start]
   const chunks = []
   let left = start
@@ -111,7 +111,7 @@ export function sittingsOf(hours) {
     chunks.push(2)
     left = roundHalf(left - 2)
   }
-  if (left >= 1) chunks.push(left)
+  if (left >= 0.5) chunks.push(left)
   else if (chunks.length) {
     chunks[chunks.length - 1] = roundHalf(chunks[chunks.length - 1] + left)
   }

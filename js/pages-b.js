@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, parseStamp, showDate, showStamp } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=65'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=65'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=66'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=66'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -271,10 +271,8 @@ function taskEditor(task, index, tasks, data, deadline, ignorePlanId, planShort 
     })
   }
 
-  if (!zeroHours && hours > rec + 0.05) {
+  if (!zeroHours && task.userAdjustedHours && hours > rec + 0.05) {
     alertList.push(`<div class="alert-strip info">🤖 Gợi ý AI: Nhiệm vụ “${esc(task.name)}” theo độ khó chỉ cần khoảng ${formatHours(rec)} giờ làm.<button type="button" data-act="ai-set-hours" data-id="${task.id}" data-hours="${rec}">Đặt ${formatHours(rec)} giờ</button></div>`)
-  } else if (!zeroHours && pendingId === task.id && hours < rec - 0.05) {
-    alertList.push(`<div class="alert-strip info">🤖 Gợi ý AI: Nhiệm vụ “${esc(task.name)}” có độ khó nên dành khoảng ${formatHours(rec)} giờ làm.<button type="button" data-act="ai-set-hours" data-id="${task.id}" data-hours="${rec}">Đặt ${formatHours(rec)} giờ</button></div>`)
   }
 
   const strips = alertList.join('')

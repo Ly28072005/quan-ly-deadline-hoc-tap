@@ -3,7 +3,7 @@
   formatISO, formatSpan, formatWhen, isoOf, minutes, pad, parseDate, roundUp30, startOfDay, uid, weekdayMon,
 } from './format.js'
 import { composeTutor } from './tutor.js'
-import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=65'
+import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=66'
 
 export { estimateWorkload, roundHalf }
 
@@ -680,17 +680,19 @@ function itemWeight(item) {
 // 1h  - tom tat, ke hoach, tong hop, nhan xet
 // 0.5h - doc, on lai, kiem tra nhanh, va moi thu con lai
 export function recommendedHoursForTask(task) {
-  const byKeyword = minHoursForItem({ name: task?.name || '', text: task?.description || '' })
   const base = Number(task?.baseHours) || 0
-  return Math.max(0.5, byKeyword || base || 1)
+  if (base > 0) return Math.max(0.5, roundHalf(base))
+  return Math.max(0.5, minHoursForItem({ name: task?.name || '', text: task?.description || '' }))
 }
 
 function minHoursForItem(item) {
-  const src = fold(`${item.name || ''} ${item.text || ''}`)
-  if (/(code|lap trinh|api|endpoint|rest|lab|sql|truy van|bpmn|usecase|erd|uml|kien truc|prototype|wireframe|persona|demo|dashboard|bao cao|luan van|luan|toan|do thi|bieu do|so do)/.test(src)) return 2
-  if (/(phan tich|analysis|research|nghien cuu|thuyet trinh|slide|powerpoint|viet|essay|paper|bai bao|thiet ke|design|tong hop|trich xuat|phong van|interview|journey|flow|insight|ideate|findings|iteration|usability)/.test(src)) return 1.5
-  if (/(tom tat|ke hoach|plan|muc tieu|review|kiem tra|chu thich|ghi chu|tinh huong|nhan xet|scope|goal|statement|space|evidence|scenario|participants|learning|survey|idea|pain point|how might|pov|value proposition|mvp)/.test(src)) return 1
-  return 0.5
+  const explicit = roundHalf(parseWorkload(item?.text || item?.name || '', { defaults: false }).hours || 0)
+  const src = fold(`${item?.name || ''} ${item?.text || ''}`)
+  let byDifficulty = 0.5
+  if (/(code|lap trinh|api|endpoint|rest|lab|sql|truy van|bpmn|usecase|erd|uml|kien truc|architecture|prototype|wireframe|persona|demo|dashboard|bao cao|luan van|luan|toan|do thi|bieu do|so do)/.test(src)) byDifficulty = 2
+  else if (/(phan tich|analysis|research|nghien cuu|thuyet trinh|slide|powerpoint|viet|essay|paper|bai bao|thiet ke|design|tong hop|trich xuat|phong van|interview|journey|flow|insight|ideate|findings|iteration|usability|evaluation)/.test(src)) byDifficulty = 1.5
+  else if (/(tom tat|ke hoach|plan|muc tieu|review|kiem tra|tinh huong|scope|goal|statement|space|evidence|scenario|survey|idea|pain point|pov|value proposition|mvp)/.test(src)) byDifficulty = 1
+  return Math.max(byDifficulty, explicit)
 }
 
 // Sau khi spreadHours() chia deu, nang tung chunk len minHoursForItem cua item.
@@ -814,7 +816,7 @@ function pushLeaf(tasks, parentId, name, hours, note = '') {
   sittingsOf(hours).forEach((chunk, sitting, chunks) => {
     tasks.push({
       id: uid('t'), parentId, name: chunks.length > 1 ? `${name} · buổi ${sitting + 1}` : name,
-      hours: chunk, baseHours: chunk, start: 0, end: 0, status: 'todo', description: parentId ? '' : note, files: [], doneAt: 0,
+      hours: chunk, baseHours: chunk, start: 0, end: 0, status: 'todo', description: note, files: [], doneAt: 0,
     })
   })
 }
@@ -823,19 +825,11 @@ function breakdownTasks(output, docs) {
   const estimate = estimateWorkload(output)
   const groups = outputGroups(output)
   if (!groups.length) return { tasks: [], estimate }
-  const total = roundHalf(estimate.hours) || groups.reduce((sum, group) => sum + group.items.length, 0)
-  const groupHours = allocateGroupHours(groups, total)
   const docNote = docs?.length ? `Tài liệu môn: ${docs.map((doc) => doc.name).join(', ')}.` : ''
   const tasks = []
-  groups.forEach((group, index) => {
-    // Moi item co ten rieng → moi item la 1 nhiem vu doc lap.
-    // Gio moi item = max(phan bo deu tu groupHours, minHoursForItem theo do kho).
-    // Tong group co the tang so voi groupHours neu nhieu task kho.
-    const basePerItem = roundHalf(Math.max(0.5, groupHours[index] / group.items.length))
-    const itemHours = group.items.map((item) => {
-      const min = minHoursForItem(item)
-      return basePerItem < min ? min : basePerItem
-    })
+  groups.forEach((group) => {
+    // Gán giờ trực tiếp theo độ khó của từng nhiệm vụ (0.5h / 1h / 1.5h / 2h+)
+    const itemHours = group.items.map((item) => minHoursForItem(item))
     const hours = roundHalf(itemHours.reduce((s, v) => s + v, 0))
     const titled = group.title && fold(group.title) !== fold(group.items[0].name)
     const parentNeeded = titled || group.items.length > 1
@@ -847,7 +841,7 @@ function breakdownTasks(output, docs) {
         start: 0, end: 0, status: 'todo', description: note, files: [], doneAt: 0, baseHours: hours,
       })
     }
-    group.items.forEach((item, i) => pushLeaf(tasks, parentId, item.name, itemHours[i], note))
+    group.items.forEach((item, i) => pushLeaf(tasks, parentId, item.name, itemHours[i], item.text || note))
   })
   return { tasks, estimate }
 }
@@ -1098,8 +1092,9 @@ function packOpenTasks(data, planIds, now = Date.now()) {
     task.start = window.start
     task.end = window.end
     task.hours = window.hours
+    if (!task.userAdjustedHours) task.baseHours = window.hours
     const leftover = roundHalf(item.hours - window.hours)
-    if (leftover >= 1) {
+    if (leftover >= 0.5) {
       const extra = {
         id: uid('t'), parentId: item.parentId, name: sittingName(item.name, plan.tasks),
         hours: leftover, phase: item.phase, baseHours: leftover,

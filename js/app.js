@@ -2,14 +2,14 @@ import { createStore } from './store.js'
 import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual,
-} from './model.js?v=65'
+} from './model.js?v=66'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=65'
-import { askClaude, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, probeClaude, setClaudeKey } from './claude.js?v=65'
-import { esc, icon, logo } from './html.js?v=65'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=65'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=65'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=65'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=66'
+import { askClaude, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, probeClaude, setClaudeKey } from './claude.js?v=66'
+import { esc, icon, logo } from './html.js?v=66'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=66'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=66'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=66'
 
 const store = createStore()
 const NAV = [
@@ -907,7 +907,7 @@ function onClick(event) {
   if (act === 'ai-set-hours' && ai) {
     const targetHours = Number(node.dataset.hours)
     if (Number.isFinite(targetHours) && targetHours > 0) {
-      applyAiHours(node.dataset.id, targetHours)
+      applyAiHours(node.dataset.id, targetHours, false)
     }
     return
   }
@@ -1169,12 +1169,13 @@ function compressPreview() {
   toast('Đã nén nhiệm vụ dự phòng của môn hạn xa và xếp lại lịch.')
 }
 
-function applyAiHours(taskId, hours) {
+function applyAiHours(taskId, hours, fromUser = true) {
   if (!ai) return
   const task = ai.tasks.find((item) => item.id === taskId)
   if (!task) return
   ai.dirtyTimes = true
   ai.pendingHours = { id: task.id, hours }
+  task.userAdjustedHours = fromUser
   if (!(hours > 0) || hours > 24) {
     task.hours = Number.isFinite(hours) ? hours : 0
     task.needFree = 0
@@ -1182,6 +1183,8 @@ function applyAiHours(taskId, hours) {
     return
   }
   const result = applyHoursChange(ai.tasks, task.id, hours, store.snapshot(), ai.deadline, ai.planId)
+  const updated = result.tasks.find((item) => item.id === taskId)
+  if (updated) updated.userAdjustedHours = fromUser
   ai.tasks = result.tasks
   render()
 }
@@ -1196,12 +1199,15 @@ function patchAi(node) {
     const hours = raw === '' ? 0 : Number(raw)
     ai.dirtyTimes = true
     ai.pendingHours = { id: task.id, hours }
+    task.userAdjustedHours = true
     if (!(hours > 0) || hours > 24) {
       task.hours = Number.isFinite(hours) ? hours : 0
       task.needFree = 0
       return
     }
     const result = applyHoursChange(ai.tasks, task.id, hours, store.snapshot(), ai.deadline, ai.planId)
+    const updated = result.tasks.find((item) => item.id === task.id)
+    if (updated) updated.userAdjustedHours = true
     ai.tasks = result.tasks
     return
   }
