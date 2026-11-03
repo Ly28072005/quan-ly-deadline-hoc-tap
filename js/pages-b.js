@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, parseStamp, showDate, showStamp } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=66'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=66'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=67'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=67'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -246,12 +246,12 @@ function taskEditor(task, index, tasks, data, deadline, ignorePlanId, planShort 
   const alertList = []
 
   if (zeroHours) {
-    alertList.push(`<div class="alert-strip bad">❌ Thời lượng nhiệm vụ phải lớn hơn 0 giờ (tối thiểu 0,5 giờ).<button type="button" data-act="ai-set-hours" data-id="${task.id}" data-hours="${rec}">Đặt lại ${formatHours(rec)}h</button></div>`)
+    alertList.push(`<div class="alert-strip bad">Thời lượng nhiệm vụ phải lớn hơn 0 giờ (tối thiểu 0,5 giờ).<button type="button" data-act="ai-set-hours" data-id="${task.id}" data-hours="${rec}">Đặt lại ${formatHours(rec)}h</button></div>`)
   } else if (overlapForeign) {
     if (fix && fix.kind === 'move' && !(Number(task.needFree) > 0)) {
-      alertList.push(`<div class="alert-strip bad">⚠️ ${esc(overlapForeign.text)}${fixAction(task, fix)}</div>`)
+      alertList.push(`<div class="alert-strip bad">${esc(overlapForeign.text)}${fixAction(task, fix)}</div>`)
     } else {
-      alertList.push(`<div class="alert-strip bad">⚠️ ${esc(overlapForeign.text)} Quỹ thời gian rảnh không còn khung trống ${formatHours(hours)}h.<a class="btn btn-ghost" href="#/lich/ranh">Thêm giờ rảnh</a></div>`)
+      alertList.push(`<div class="alert-strip bad">${esc(overlapForeign.text)} Quỹ thời gian rảnh không còn khung trống ${formatHours(hours)}h.<a class="btn btn-ghost" href="#/lich/ranh">Thêm giờ rảnh</a></div>`)
     }
   } else if (needFree) {
     if (fix && fix.kind === 'move' && !(Number(task.needFree) > 0)) {
@@ -261,7 +261,7 @@ function taskEditor(task, index, tasks, data, deadline, ignorePlanId, planShort 
       alertList.push(`<div class="alert-strip bad">${esc(freeNeedText(task, hours))}<a class="btn btn-ghost" href="#/lich/ranh">Thêm giờ rảnh</a></div>`)
     }
   } else if (overlapSame) {
-    alertList.push(`<div class="alert-strip bad">⚠️ ${esc(overlapSame.text)}${fix ? fixAction(task, fix) : ''}</div>`)
+    alertList.push(`<div class="alert-strip bad">${esc(overlapSame.text)}${fix ? fixAction(task, fix) : ''}</div>`)
   } else if (warnings.length) {
     const visible = planShort && pendingId !== task.id
       ? warnings.filter((item) => item.code !== 'missing')

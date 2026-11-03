@@ -3,7 +3,7 @@
   formatISO, formatSpan, formatWhen, isoOf, minutes, pad, parseDate, roundUp30, startOfDay, uid, weekdayMon,
 } from './format.js'
 import { composeTutor } from './tutor.js'
-import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=66'
+import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=67'
 
 export { estimateWorkload, roundHalf }
 
@@ -279,18 +279,22 @@ export function proposeFix(task, tasks, data, deadline, ignorePlanId = '') {
 function cascadeLeaves(tasks, pivot, data, deadline, ignorePlanId) {
   const from = Date.now()
   const until = deadline || pivot.end
-  const foreign = fixedBlocks(data, ignorePlanId, Math.min(from, pivot.start || from), until)
-  const leaves = leafTasks(tasks)
-    .filter((task) => task.status !== 'done' && task.start && task.end)
+  const others = leafTasks(tasks)
+    .filter((task) => task.id !== pivot.id && task.status !== 'done' && task.start && task.end)
     .sort((a, b) => a.start - b.start || a.end - b.end)
-  const index = leaves.findIndex((task) => task.id === pivot.id)
-  if (index < 0) return
-  const placed = leaves.slice(0, index + 1)
-  for (let i = index + 1; i < leaves.length; i += 1) {
-    const task = leaves[i]
+  const minStart = others.reduce((m, t) => Math.min(m, t.start), Math.min(from, pivot.start || from))
+  const foreign = fixedBlocks(data, ignorePlanId, minStart, until)
+
+  // Cac nhiem vu ket thuc truoc khi pivot bat dau (khong va cham voi pivot) thi giu nguyen
+  const unaffected = others.filter((task) => task.end <= pivot.start && !overlaps(pivot.start, pivot.end, task.start, task.end))
+  // Moi nhiem vu bi pivot de len (ke ca cung gio bat dau) hoac nam sau pivot deu duoc xet day lui
+  const queue = others.filter((task) => !unaffected.includes(task))
+  const placed = [...unaffected, pivot]
+
+  for (const task of queue) {
     const duration = Math.max(STEP, (taskHours(task) || 0.5) * 3600000)
     const blocked = foreign.concat(placed.map((item) => [item.start, item.end]))
-    if (task.start >= pivot.end - 1 && slotFree(task.start, task.start + duration, data.freeSlots, blocked)) {
+    if (!overlaps(pivot.start, pivot.end, task.start, task.start + duration) && slotFree(task.start, task.start + duration, data.freeSlots, blocked)) {
       task.end = task.start + duration
       placed.push(task)
       continue
@@ -303,7 +307,7 @@ function cascadeLeaves(tasks, pivot, data, deadline, ignorePlanId) {
       blocked,
     }) || findWindow({
       duration,
-      from: Math.max(from, pivot.end),
+      from,
       until,
       freeSlots: data.freeSlots,
       blocked,
@@ -336,6 +340,7 @@ export function applyHoursChange(tasks, taskId, hours, data, deadline, ignorePla
   const next = tasks.map((task) => ({ ...task, files: task.files || [] }))
   const task = next.find((item) => item.id === taskId)
   if (!task) return { tasks: next, kind: 'ok' }
+  const oldEnd = task.end
   task.hours = hours
   task.needFree = 0
   if (!(hours > 0) || hours > 24 || !task.start) {
@@ -351,7 +356,14 @@ export function applyHoursChange(tasks, taskId, hours, data, deadline, ignorePla
   const classes = classIntervals(data.courses, minFrom, until)
   const fixed = classes.map((item) => [item.start, item.end]).concat(foreign.map((item) => [item.start, item.end]))
 
-  // Kiem tra trung lich voi mon khac hoac lich hoc tren lop
+  // 1. Neu giam gio hoac giu nguyen trong khung cu va khong va cham ai
+  if (wantEnd <= oldEnd && slotFree(task.start, wantEnd, data.freeSlots, fixed.concat(blocksOf(next, taskId)))) {
+    task.end = wantEnd
+    refreshParents(next)
+    return { tasks: next, kind: 'ok' }
+  }
+
+  // 2. Kiem tra trung lich voi MON KHAC hoac LICH HOC TREN LOP tai khung [task.start, wantEnd]
   const hitForeign = foreign.some((item) => overlaps(task.start, wantEnd, item.start, item.end))
   const hitClass = classes.some((item) => overlaps(task.start, wantEnd, item.start, item.end))
   if (hitForeign || hitClass) {
@@ -375,7 +387,7 @@ export function applyHoursChange(tasks, taskId, hours, data, deadline, ignorePla
     return { tasks: next, kind: 'need-free', hours, hints: suggestFreeAdds(data, from, until, hours) }
   }
 
-  // Neu cac mon khac chua xep vao gio do va ca ranh hien tai du cho:
+  // 3. Neu cac mon khac chua xep vao gio do va ca ranh hien tai du cho:
   // -> Cho chinh gio tai cho va day lui cac nhiem vu cung mon (khong day lui mon khac)
   const keep = wantEnd <= startOfDay(task.start) + DAY && slotFree(task.start, wantEnd, data.freeSlots, fixed)
   if (keep) {
@@ -385,43 +397,42 @@ export function applyHoursChange(tasks, taskId, hours, data, deadline, ignorePla
     refreshParents(next)
     const leftover = leafTasks(next).filter((item) => item.status !== 'done' && item.id !== taskId && !item.start)
     if (leftover.length) {
-      const miss = leftover.reduce((sum, item) => sum + taskHours(item), 0)
+      const miss = roundHalf(leftover.reduce((sum, item) => sum + taskHours(item), 0)) || hours
       for (let i = 0; i < next.length; i += 1) {
-        if (next[i].id !== taskId) {
-          next[i].start = snapshot[i].start
-          next[i].end = snapshot[i].end
-        }
+        next[i].start = snapshot[i].start
+        next[i].end = snapshot[i].end
       }
       refreshParents(next)
-      task.needFree = Math.max(hours, roundHalf(miss))
+      task.needFree = miss
       return { tasks: next, kind: 'need-free', hours, hints: suggestFreeAdds(data, from, until, miss) }
     }
     return { tasks: next, kind: 'ok' }
   }
 
-  // Neu ca ranh hien tai khong du do dai nhung van con thoi gian ranh o khung khac (khong trung mon khac):
-  // -> Thu doi sang khung gio ranh du do dai va day lui cac nhiem vu cung mon
-  const trial = next.map((item) => ({ ...item, files: item.files || [] }))
-  const trialTask = trial.find((item) => item.id === taskId)
-  const priorBlocks = fixed.concat(
-    leafTasks(trial)
-      .filter((item) => item.id !== taskId && item.status !== 'done' && item.start && item.end && item.start < task.start)
-      .map((item) => [item.start, item.end]),
-  )
-  const movedWindow = findWindow({
+  // 4. Neu ca ranh tai cho khong du do dai nhung van con khung gio ranh khac (khong trung mon khac):
+  // -> Tim khung gio ranh du do dai va day lui cac nhiem vu cung mon bi va cham
+  const candidateWindows = []
+  const w1 = findWindow({
     duration: need,
     from: Math.max(from, task.start),
     until,
     freeSlots: data.freeSlots,
-    blocked: priorBlocks,
-  }) || findWindow({
+    blocked: fixed,
+  })
+  if (w1) candidateWindows.push(w1)
+  const w2 = findWindow({
     duration: need,
     from,
     until,
     freeSlots: data.freeSlots,
-    blocked: fixed.concat(blocksOf(trial, taskId)),
+    blocked: fixed.concat(blocksOf(next, taskId)),
   })
-  if (movedWindow) {
+  if (w2 && (!w1 || w2.start !== w1.start)) candidateWindows.push(w2)
+
+  let lastMiss = 0
+  for (const movedWindow of candidateWindows) {
+    const trial = next.map((item) => ({ ...item, files: item.files || [] }))
+    const trialTask = trial.find((item) => item.id === taskId)
     trialTask.start = movedWindow.start
     trialTask.end = movedWindow.end
     cascadeLeaves(trial, trialTask, data, deadline, ignorePlanId)
@@ -430,13 +441,15 @@ export function applyHoursChange(tasks, taskId, hours, data, deadline, ignorePla
     if (!leftover.length) {
       return { tasks: trial, kind: 'ok', window: movedWindow }
     }
+    lastMiss = roundHalf(leftover.reduce((sum, item) => sum + taskHours(item), 0))
   }
 
-  // Het khung thoi gian ranh -> De xuat bo sung thoi gian ranh
-  task.end = wantEnd
-  task.needFree = hours
+  // 5. Het khung thoi gian ranh -> Giu nguyen khung cu de khong de len nhiem vu cung mon, bao can bo sung gio ranh
+  const missHours = lastMiss > 0 ? lastMiss : hours
+  task.end = oldEnd
+  task.needFree = missHours
   refreshParents(next)
-  return { tasks: next, kind: 'need-free', hours, hints: suggestFreeAdds(data, from, until, hours) }
+  return { tasks: next, kind: 'need-free', hours, hints: suggestFreeAdds(data, from, until, missHours) }
 }
 
 function foreignLeaves(data, ignorePlanId) {
@@ -498,12 +511,12 @@ function coveredFreeHours(start, end, freeSlots) {
 
 export function hourHardError(task, data, deadline, ignorePlanId = '') {
   const hours = Number(task.hours)
-  if (!(hours > 0)) return { level: 'bad', code: 'hours-zero', text: '❌ Thời lượng nhiệm vụ phải lớn hơn 0 giờ (tối thiểu 0,5 giờ).' }
-  if (hours > 24) return { level: 'bad', code: 'hours-day', text: '❌ Thời lượng nhiệm vụ không thể vượt quá 24 giờ trong một ca.' }
+  if (!(hours > 0)) return { level: 'bad', code: 'hours-zero', text: 'Thời lượng nhiệm vụ phải lớn hơn 0 giờ (tối thiểu 0,5 giờ).' }
+  if (hours > 24) return { level: 'bad', code: 'hours-day', text: 'Thời lượng nhiệm vụ không thể vượt quá 24 giờ trong một ca.' }
   const until = deadline || task.end || 0
   if (until > Date.now()) {
     const free = openHours(data, Date.now(), until, ignorePlanId, 0)
-    if (hours > free + 0.05) return { level: 'bad', code: 'hours-free', text: '❌ Số giờ nhập vào vượt quá toàn bộ tổng quỹ thời gian rảnh còn lại.' }
+    if (hours > free + 0.05) return { level: 'bad', code: 'hours-free', text: 'Số giờ nhập vào vượt quá toàn bộ tổng quỹ thời gian rảnh còn lại.' }
   }
   return null
 }
@@ -573,7 +586,7 @@ export function taskWarnings(task, tasks, data, deadline, parent, ignorePlanId =
   }
   if (task.end < Date.now()) warnings.push({ level: 'warn', code: 'past', text: 'Ngày làm đã qua.' })
   const wanted = taskHours(task)
-  if (wanted - placed > 0.25) {
+  if (!needFree && wanted - placed > 0.25) {
     const severe = placed <= wanted / 2
     warnings.push({
       level: severe ? 'bad' : 'warn',
