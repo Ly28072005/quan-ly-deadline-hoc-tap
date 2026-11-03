@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, parseStamp, showDate, showStamp } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=67'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=67'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=68'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=68'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -185,7 +185,7 @@ function aiReview(ctx) {
       <section class="card pad">
         <div class="task-table">
           <div class="tr head"><span>#</span><span>Nhiệm vụ</span><span>Cần (giờ)</span><span>Ngày</span><span>Bắt đầu</span><span>Kết thúc</span><span></span></div>
-          ${reviewRows(ai.tasks, { ...ctx, planShort: load.short })}
+          ${reviewRows(ai.tasks, { ...ctx, planShort: load.short, warnMap: new Map(review.rows.map((row) => [row.task.id, row.warnings])) })}
         </div>
         <button class="btn btn-ghost" type="button" data-act="ai-add">+ Thêm nhiệm vụ</button>
       </section>`,
@@ -202,7 +202,9 @@ function reviewRows(tasks, ctx) {
   const parents = tasks.filter((task) => isParent(task, tasks))
   const planShort = !!ctx.planShort
   const pendingId = ctx.ai?.pendingHours?.id || ''
-  if (!parents.length) return leaves.map((task, index) => taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort, pendingId)).join('')
+  const warnMap = ctx.warnMap || null
+  const typingHours = ctx.ai?.typingHours || null
+  if (!parents.length) return leaves.map((task, index) => taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort, pendingId, warnMap, typingHours)).join('')
   let index = 0
   const seen = new Set()
   const chunks = []
@@ -210,13 +212,13 @@ function reviewRows(tasks, ctx) {
     chunks.push(`<p class="k">${esc(parent.name)}</p>`)
     for (const task of leaves.filter((item) => item.parentId === parent.id)) {
       seen.add(task.id)
-      chunks.push(taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort, pendingId))
+      chunks.push(taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort, pendingId, warnMap, typingHours))
       index += 1
     }
   }
   for (const task of leaves) {
     if (seen.has(task.id)) continue
-    chunks.push(taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort, pendingId))
+    chunks.push(taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort, pendingId, warnMap, typingHours))
     index += 1
   }
   return chunks.join('')
@@ -233,8 +235,8 @@ function freeNeedText(task, hours) {
   return `Quỹ thời gian rảnh không đủ ${formatHours(hours)} giờ cho nhiệm vụ này (thiếu ${formatHours(need)} giờ rảnh). Hãy bổ sung thêm thời gian rảnh.`
 }
 
-function taskEditor(task, index, tasks, data, deadline, ignorePlanId, planShort = false, pendingId = '') {
-  const warnings = taskWarningsOf(task, tasks, data, deadline, ignorePlanId)
+function taskEditor(task, index, tasks, data, deadline, ignorePlanId, planShort = false, pendingId = '', warnMap = null, typingHours = null) {
+  const warnings = warnMap ? (warnMap.get(task.id) || []) : taskWarningsOf(task, tasks, data, deadline, ignorePlanId)
   const fix = warnings.length ? ctxFix(task, tasks, data, deadline, ignorePlanId) : null
   const rawHours = task.hours !== undefined && task.hours !== null && task.hours !== '' ? Number(task.hours) : 1
   const hours = Number.isFinite(rawHours) ? rawHours : 0
@@ -277,9 +279,10 @@ function taskEditor(task, index, tasks, data, deadline, ignorePlanId, planShort 
 
   const strips = alertList.join('')
   const badBox = zeroHours || warnings.some((item) => item.level === 'bad') ? ' bad' : ''
+  const shownHours = typingHours?.id === task.id ? typingHours.raw : formatHours(hours)
   const hoursInput = `<div class="hours-stepper${badBox}">
     <button class="step-btn" type="button" data-act="hours-step" data-id="${task.id}" data-dir="-1" title="Giảm 0,5 giờ" aria-label="Giảm 0.5h">−</button>
-    <input class="input hours-input" type="number" min="0" max="24" step="0.5" data-act="ai-field" data-id="${task.id}" data-key="hours" value="${hours}" aria-label="Số giờ">
+    <input class="input hours-input" type="text" inputmode="decimal" autocomplete="off" spellcheck="false" data-act="ai-field" data-id="${task.id}" data-key="hours" value="${esc(shownHours)}" aria-label="Số giờ">
     <button class="step-btn" type="button" data-act="hours-step" data-id="${task.id}" data-dir="1" title="Tăng 0,5 giờ" aria-label="Tăng 0.5h">+</button>
   </div>`
   return `<div class="tr">

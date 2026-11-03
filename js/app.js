@@ -2,14 +2,14 @@ import { createStore } from './store.js'
 import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual,
-} from './model.js?v=67'
+} from './model.js?v=68'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=67'
-import { askClaude, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, probeClaude, setClaudeKey } from './claude.js?v=67'
-import { esc, icon, logo } from './html.js?v=67'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=67'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=67'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=67'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=68'
+import { askClaude, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, probeClaude, setClaudeKey } from './claude.js?v=68'
+import { esc, icon, logo } from './html.js?v=68'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=68'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=68'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=68'
 
 const store = createStore()
 const NAV = [
@@ -34,6 +34,8 @@ let aiKey = ''
 let manual = null
 let manualKey = ''
 let aiTimer = 0
+let hoursInputTimer = 0
+let rendering = false
 let chatBusy = ''
 let aiLive = false
 let drawer = false
@@ -281,6 +283,11 @@ function viewerHtml() {
   return `<div class="viewer-back"><section class="viewer" role="dialog" aria-label="${esc(viewer.name)}"><header><strong>${esc(viewer.name)}</strong><button class="icon-btn" type="button" data-act="close-viewer" aria-label="Đóng">${icon('x', 18)}</button></header>${body}</section></div>`
 }
 
+function safeSel(el) {
+  if (!el || typeof el.selectionStart !== 'number') return null
+  try { return { start: el.selectionStart, end: el.selectionEnd ?? el.selectionStart } } catch { return null }
+}
+
 function render() {
   const root = document.getElementById('app')
   if (!root) return
@@ -292,19 +299,34 @@ function render() {
   if (isAuth(route.name)) { location.hash = '#/'; return }
   const active = document.activeElement
   const focusAi = active?.dataset?.act === 'ai-field'
-    ? { id: active.dataset.id, key: active.dataset.key }
+    ? { id: active.dataset.id, key: active.dataset.key, sel: safeSel(active) }
     : null
+  const winY = window.scrollY
   settleSchedule()
   prepare()
   captureDrafts()
   const ctx = context()
   const page = pageOf(ctx)
-  root.innerHTML = shell(page)
+  rendering = true
+  try {
+    root.innerHTML = shell(page)
+  } finally {
+    rendering = false
+  }
   const scroller = root.querySelector('[data-scroll="cal"]')
   if (scroller) scroller.scrollTop = 44
+  if (window.scrollY !== winY) window.scrollTo(0, winY)
   if (focusAi?.id && focusAi?.key) {
     const nextEl = root.querySelector(`[data-act="ai-field"][data-id="${focusAi.id}"][data-key="${focusAi.key}"]`)
-    if (nextEl) nextEl.focus()
+    if (nextEl) {
+      nextEl.focus({ preventScroll: true })
+      if (focusAi.sel && typeof nextEl.setSelectionRange === 'function') {
+        try {
+          const len = nextEl.value.length
+          nextEl.setSelectionRange(Math.min(focusAi.sel.start, len), Math.min(focusAi.sel.end, len))
+        } catch { /* ignore */ }
+      }
+    }
   }
 }
 
@@ -582,8 +604,9 @@ function queueSuggest() {
 }
 
 function confirmAi() {
+  commitTypingHours(false)
   const review = reviewTasks(ai.tasks, store.snapshot(), ai.deadline, ai.planId)
-  if (review.bad) return
+  if (review.bad) { render(); return }
   if (ai.deadline > Date.now() && review.open < 0.5) {
     toast('Giờ rảnh đến hạn kế hoạch đã được xếp hết nhiệm vụ. Hãy bổ sung thời gian rảnh.')
     return
@@ -892,19 +915,29 @@ function onClick(event) {
   if (act === 'ai-redo') { if (ai) { ai.step = 1; render() } }
   if (act === 'ai-rebuild') rebuildAi()
   if (act === 'ai-add') { ai.tasks.push({ id: uid('t'), parentId: '', name: 'Nhiệm vụ mới', hours: 1.5, start: 0, end: 0, status: 'todo', description: '', files: [], doneAt: 0 }); render() }
-  if (act === 'ai-del') { ai.tasks = ai.tasks.filter((task) => task.id !== node.dataset.id && task.parentId !== node.dataset.id); render() }
+  if (act === 'ai-del') { window.clearTimeout(hoursInputTimer); if (ai) ai.typingHours = null; ai.tasks = ai.tasks.filter((task) => task.id !== node.dataset.id && task.parentId !== node.dataset.id); render() }
   if (act === 'hours-step' && ai) {
     const stepTask = ai.tasks.find((t) => t.id === node.dataset.id)
     if (stepTask) {
       const dir = Number(node.dataset.dir)
-      const cur = stepTask.hours !== undefined && stepTask.hours !== '' ? Number(stepTask.hours) : 1
-      const base = Number.isFinite(cur) ? cur : 1
+      let base = stepTask.hours !== undefined && stepTask.hours !== '' ? Number(stepTask.hours) : 1
+      if (ai.typingHours?.id === stepTask.id) {
+        const typed = parseHoursInput(ai.typingHours.raw)
+        if (Number.isFinite(typed)) base = typed
+      } else if (ai.typingHours) {
+        commitTypingHours(false)
+      }
+      window.clearTimeout(hoursInputTimer)
+      ai.typingHours = null
+      if (!Number.isFinite(base)) base = 1
       const next = Math.max(0, Math.min(24, Math.round((base + dir * 0.5) * 2) / 2))
       applyAiHours(stepTask.id, next)
     }
     return
   }
   if (act === 'ai-set-hours' && ai) {
+    window.clearTimeout(hoursInputTimer)
+    ai.typingHours = null
     const targetHours = Number(node.dataset.hours)
     if (Number.isFinite(targetHours) && targetHours > 0) {
       applyAiHours(node.dataset.id, targetHours, false)
@@ -1032,6 +1065,8 @@ function moveTask(id) {
 }
 
 function applyAiFix(id, startRaw, endRaw) {
+  window.clearTimeout(hoursInputTimer)
+  if (ai) ai.typingHours = null
   const task = ai?.tasks.find((item) => item.id === id)
   if (!task) return
   let start = Number(startRaw)
@@ -1113,12 +1148,22 @@ function onInput(event) {
   const aiField = event.target.closest('[data-act="ai-field"]')
   if (aiField && ai) {
     if (aiField.dataset.key === 'hours') {
-      const raw = String(aiField.value ?? '').trim()
-      if (raw === '' || /[.,]$/.test(raw)) return
-      const num = Number(raw.replace(',', '.'))
+      const cleaned = String(aiField.value ?? '').replace(/[^0-9.,]/g, '')
+      if (cleaned !== aiField.value) {
+        const pos = Math.max(0, (aiField.selectionStart || cleaned.length) - (aiField.value.length - cleaned.length))
+        aiField.value = cleaned
+        try { aiField.setSelectionRange(pos, pos) } catch { /* ignore */ }
+      }
+      const raw = cleaned.trim()
+      ai.typingHours = { id: aiField.dataset.id, raw: cleaned }
+      window.clearTimeout(hoursInputTimer)
+      if (raw === '' || /[.,]$/.test(raw) || (raw.match(/[.,]/g) || []).length > 1) return
+      const num = parseHoursInput(raw)
       if (!Number.isFinite(num)) return
-      patchAi(aiField)
-      render()
+      hoursInputTimer = window.setTimeout(() => {
+        if (!ai || ai.typingHours?.id !== aiField.dataset.id) return
+        applyAiHours(aiField.dataset.id, num, true, true, true)
+      }, 450)
       return
     }
     patchAi(aiField)
@@ -1169,8 +1214,28 @@ function compressPreview() {
   toast('Đã nén nhiệm vụ dự phòng của môn hạn xa và xếp lại lịch.')
 }
 
-function applyAiHours(taskId, hours, fromUser = true) {
+function parseHoursInput(value) {
+  const clean = String(value ?? '').trim().replace(',', '.')
+  if (!clean) return 0
+  const n = Number(clean)
+  return Number.isFinite(n) ? Math.max(0, Math.round(n * 100) / 100) : NaN
+}
+
+function commitTypingHours(shouldRender = false) {
+  window.clearTimeout(hoursInputTimer)
+  if (!ai?.typingHours) return false
+  const { id, raw } = ai.typingHours
+  ai.typingHours = null
+  const parsed = parseHoursInput(raw)
+  const hours = Number.isFinite(parsed) ? parsed : 0
+  applyAiHours(id, hours, true, false, shouldRender)
+  return true
+}
+
+function applyAiHours(taskId, hours, fromUser = true, keepTyping = false, shouldRender = true) {
   if (!ai) return
+  window.clearTimeout(hoursInputTimer)
+  if (!keepTyping) ai.typingHours = null
   const task = ai.tasks.find((item) => item.id === taskId)
   if (!task) return
   ai.dirtyTimes = true
@@ -1179,14 +1244,14 @@ function applyAiHours(taskId, hours, fromUser = true) {
   if (!(hours > 0) || hours > 24) {
     task.hours = Number.isFinite(hours) ? hours : 0
     task.needFree = 0
-    render()
+    if (shouldRender) render()
     return
   }
   const result = applyHoursChange(ai.tasks, task.id, hours, store.snapshot(), ai.deadline, ai.planId)
   const updated = result.tasks.find((item) => item.id === taskId)
   if (updated) updated.userAdjustedHours = fromUser
   ai.tasks = result.tasks
-  render()
+  if (shouldRender) render()
 }
 
 function patchAi(node) {
@@ -1297,6 +1362,13 @@ function onChange(event) {
     return
   }
   if (ai && input.dataset.act === 'ai-field' && ['date', 'start', 'end', 'hours'].includes(input.dataset.key)) {
+    if (input.dataset.key === 'hours') {
+      window.clearTimeout(hoursInputTimer)
+      const parsed = parseHoursInput(input.value)
+      ai.typingHours = null
+      applyAiHours(input.dataset.id, Number.isFinite(parsed) ? parsed : 0, true, false, true)
+      return
+    }
     patchAi(input)
     render()
     return
@@ -1394,9 +1466,57 @@ function onDrag(event) {
   }
 }
 
+function onMouseDown(event) {
+  const actBtn = event.target.closest('[data-act="hours-step"], [data-act="ai-set-hours"], [data-act="ai-fix"], [data-act="ai-del"], [data-act="ai-confirm"]')
+  if (actBtn) event.preventDefault()
+}
+
+function onFocusOut(event) {
+  if (rendering) return
+  const hoursField = event.target.closest?.('.hours-input')
+  if (!hoursField || !ai || !document.contains(hoursField)) return
+  window.clearTimeout(hoursInputTimer)
+  const id = hoursField.dataset.id
+  const parsed = parseHoursInput(hoursField.value)
+  const hours = Number.isFinite(parsed) ? parsed : 0
+  const task = ai.tasks.find((t) => t.id === id)
+  const hadTyping = !!ai.typingHours
+  ai.typingHours = null
+  if (task && (Number(task.hours) !== hours || hadTyping)) {
+    applyAiHours(id, hours, true, false, true)
+  }
+}
+
 function onKey(event) {
   if (event.key === 'Escape' && viewer) { closeViewer(); return }
   if (event.key === 'Escape' && drawer) { drawer = false; render() }
+  const hoursField = event.target.closest?.('.hours-input')
+  if (hoursField && ai) {
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault()
+      const id = hoursField.dataset.id
+      const dir = event.key === 'ArrowUp' ? 1 : -1
+      const task = ai.tasks.find((t) => t.id === id)
+      if (task) {
+        const pending = ai.typingHours?.id === id ? parseHoursInput(ai.typingHours.raw) : NaN
+        const base = Number.isFinite(pending) ? pending : (Number.isFinite(Number(task.hours)) ? Number(task.hours) : 1)
+        window.clearTimeout(hoursInputTimer)
+        ai.typingHours = null
+        const next = Math.max(0, Math.min(24, Math.round((base + dir * 0.5) * 2) / 2))
+        applyAiHours(id, next, true, false, true)
+      }
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      window.clearTimeout(hoursInputTimer)
+      const id = hoursField.dataset.id
+      const parsed = parseHoursInput(hoursField.value)
+      ai.typingHours = null
+      applyAiHours(id, Number.isFinite(parsed) ? parsed : 0, true, false, true)
+      return
+    }
+  }
   const area = event.target.closest('.composer textarea')
   if (area && event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault()
@@ -1417,9 +1537,11 @@ function toggleTheme() {
 }
 
 document.addEventListener('submit', onSubmit)
+document.addEventListener('mousedown', onMouseDown)
 document.addEventListener('click', onClick)
 document.addEventListener('input', onInput)
 document.addEventListener('change', onChange)
+document.addEventListener('focusout', onFocusOut)
 document.addEventListener('dragover', onDrag)
 document.addEventListener('dragleave', onDrag)
 document.addEventListener('drop', onDrag)

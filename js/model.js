@@ -3,7 +3,7 @@
   formatISO, formatSpan, formatWhen, isoOf, minutes, pad, parseDate, roundUp30, startOfDay, uid, weekdayMon,
 } from './format.js'
 import { composeTutor } from './tutor.js'
-import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=67'
+import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=68'
 
 export { estimateWorkload, roundHalf }
 
@@ -223,13 +223,26 @@ function slotFree(start, end, freeSlots, blocked) {
 
 export function findWindow({ duration, from, until, freeSlots, blocked, skipDays = null }) {
   const need = Math.max(STEP, Math.round(duration / STEP) * STEP)
-  let cursor = roundUp30(from)
-  while (cursor + need <= until) {
-    const day = dateISO(cursor)
-    if (!skipDays || !skipDays.has(day)) {
-      if (slotFree(cursor, cursor + need, freeSlots, blocked)) return { start: cursor, end: cursor + need }
+  if (!freeSlots?.length || from + need > until) return null
+  for (let day = startOfDay(from); day < until; day += DAY) {
+    if (skipDays && skipDays.has(dateISO(day))) continue
+    const wd = weekdayMon(new Date(day))
+    const daySlots = freeSlots.filter((slot) => Number(slot.weekday) === wd)
+    if (!daySlots.length) continue
+    let minStart = Infinity
+    let maxEnd = 0
+    for (const slot of daySlots) {
+      const s = atTime(day, slot.start)
+      const e = atTime(day, slot.end)
+      if (s < minStart) minStart = s
+      if (e > maxEnd) maxEnd = e
     }
-    cursor += STEP
+    let cursor = roundUp30(Math.max(from, minStart))
+    const limit = Math.min(until, maxEnd)
+    while (cursor + need <= limit) {
+      if (slotFree(cursor, cursor + need, daySlots, blocked)) return { start: cursor, end: cursor + need }
+      cursor += STEP
+    }
   }
   return null
 }
@@ -509,21 +522,25 @@ function coveredFreeHours(start, end, freeSlots) {
   return Math.round(total * 10) / 10
 }
 
-export function hourHardError(task, data, deadline, ignorePlanId = '') {
+export function hourHardError(task, data, deadline, ignorePlanId = '', pre = null) {
   const hours = Number(task.hours)
   if (!(hours > 0)) return { level: 'bad', code: 'hours-zero', text: 'Thời lượng nhiệm vụ phải lớn hơn 0 giờ (tối thiểu 0,5 giờ).' }
   if (hours > 24) return { level: 'bad', code: 'hours-day', text: 'Thời lượng nhiệm vụ không thể vượt quá 24 giờ trong một ca.' }
+  const now = pre ? pre.now : Date.now()
   const until = deadline || task.end || 0
-  if (until > Date.now()) {
-    const free = openHours(data, Date.now(), until, ignorePlanId, 0)
+  if (until > now) {
+    const free = pre && deadline && until === deadline && pre.freeStrict !== null
+      ? pre.freeStrict
+      : openHours(data, now, until, ignorePlanId, 0)
     if (hours > free + 0.05) return { level: 'bad', code: 'hours-free', text: 'Số giờ nhập vào vượt quá toàn bộ tổng quỹ thời gian rảnh còn lại.' }
   }
   return null
 }
 
-export function taskWarnings(task, tasks, data, deadline, parent, ignorePlanId = '', course = null) {
+export function taskWarnings(task, tasks, data, deadline, parent, ignorePlanId = '', course = null, pre = null) {
   const warnings = []
-  const hard = hourHardError(task, data, deadline, ignorePlanId)
+  const now = pre ? pre.now : Date.now()
+  const hard = hourHardError(task, data, deadline, ignorePlanId, pre)
   const needFree = Number(task.needFree) > 0 || hard?.code === 'hours-free'
   if (hard && hard.code !== 'hours-free') warnings.push(hard)
   if (needFree) {
@@ -549,28 +566,33 @@ export function taskWarnings(task, tasks, data, deadline, parent, ignorePlanId =
   if (parent && (task.start < parent.start || task.end > parent.end)) {
     warnings.push({ level: 'bad', code: 'parent', text: `Nằm ngoài thời gian của mục cha (${formatWhen(parent.start)} – ${formatWhen(parent.end)})` })
   }
-  for (const item of classIntervals(data.courses, task.start, task.end)) {
+  const classes = pre ? pre.allClasses : classIntervals(data.courses, task.start, task.end)
+  for (const item of classes) {
     if (overlaps(task.start, task.end, item.start, item.end)) {
       warnings.push({ level: 'bad', code: 'class', text: `Trùng lịch học ${item.name} ${formatSpan(item.start, item.end)}` })
     }
   }
-  for (const other of leafTasks(tasks)) {
+  const siblings = pre ? pre.leaves : leafTasks(tasks)
+  for (const other of siblings) {
     if (other.id === task.id || !other.start || !other.end || other.status === 'done') continue
     if (overlaps(task.start, task.end, other.start, other.end)) {
       warnings.push({ level: 'bad', code: 'overlap', text: `Khung giờ này đã có nhiệm vụ ‘${other.name}’ (${formatSpan(other.start, other.end)}).` })
     }
   }
-  for (const other of foreignLeaves(data, ignorePlanId)) {
+  const foreign = pre ? pre.allForeign : foreignLeaves(data, ignorePlanId)
+  for (const other of foreign) {
     if (other.id === task.id || !overlaps(task.start, task.end, other.start, other.end)) continue
     const who = other.courseName ? `môn ${other.courseName}` : (other.planName || 'kế hoạch khác')
     warnings.push({ level: 'bad', code: 'overlap-foreign', text: `Trùng lịch với nhiệm vụ ‘${other.name}’ của ${who} (${formatSpan(other.start, other.end)}).` })
   }
   const placed = spanHours(task.start, task.end)
-  if (course?.start && task.start < atTime(course.start, '00:00')) {
-    warnings.push({ level: 'bad', code: 'course', text: `Ngày làm bắt đầu trước ngày bắt đầu môn (${formatDMY(atTime(course.start, '00:00'))}).` })
+  const cStart = pre ? pre.courseStartTs : (course?.start ? atTime(course.start, '00:00') : 0)
+  const cEnd = pre ? pre.courseEndTs : (course?.end ? atTime(course.end, '23:59') : 0)
+  if (cStart && task.start < cStart) {
+    warnings.push({ level: 'bad', code: 'course', text: `Ngày làm bắt đầu trước ngày bắt đầu môn (${formatDMY(cStart)}).` })
   }
-  if (course?.end && task.end > atTime(course.end, '23:59')) {
-    warnings.push({ level: 'bad', code: 'course', text: `Ngày làm kết thúc sau ngày kết thúc môn (${formatDMY(atTime(course.end, '23:59'))}).` })
+  if (cEnd && task.end > cEnd) {
+    warnings.push({ level: 'bad', code: 'course', text: `Ngày làm kết thúc sau ngày kết thúc môn (${formatDMY(cEnd)}).` })
   }
   if (!sameStudyDay(task.start, task.end)) {
     warnings.push({ level: 'bad', code: 'span', text: `Nhiệm vụ này dài ${formatHours(placed)} giờ và trải qua nhiều ngày. Hãy đặt từng buổi trong một ngày, trong giờ rảnh.` })
@@ -584,7 +606,7 @@ export function taskWarnings(task, tasks, data, deadline, parent, ignorePlanId =
         : `Khung ${formatHours(placed)} giờ này không trùng giờ rảnh đã khai báo.`,
     })
   }
-  if (task.end < Date.now()) warnings.push({ level: 'warn', code: 'past', text: 'Ngày làm đã qua.' })
+  if (task.end < now) warnings.push({ level: 'warn', code: 'past', text: 'Ngày làm đã qua.' })
   const wanted = taskHours(task)
   if (!needFree && wanted - placed > 0.25) {
     const severe = placed <= wanted / 2
@@ -599,16 +621,34 @@ export function taskWarnings(task, tasks, data, deadline, parent, ignorePlanId =
 
 export function reviewTasks(tasks, data, deadline, ignorePlanId = '', course = null) {
   refreshParents(tasks)
-  const rows = leafTasks(tasks).map((task) => {
-    const parent = tasks.find((item) => item.id === task.parentId) || null
-    return { task, warnings: task.status === 'done' ? [] : taskWarnings(task, tasks, data, deadline, parent, ignorePlanId, course) }
+  const now = Date.now()
+  const leaves = leafTasks(tasks)
+  const parentMap = new Map(tasks.map((item) => [item.id, item]))
+  let minStart = Infinity
+  let maxEnd = 0
+  for (const t of leaves) {
+    if (t.start && t.start < minStart) minStart = t.start
+    if (t.end && t.end > maxEnd) maxEnd = t.end
+  }
+  const pre = {
+    now,
+    leaves,
+    freeStrict: deadline > now ? openHours(data, now, deadline, ignorePlanId, 0) : null,
+    allForeign: foreignLeaves(data, ignorePlanId),
+    allClasses: maxEnd > minStart ? classIntervals(data.courses, minStart, maxEnd) : [],
+    courseStartTs: course?.start ? atTime(course.start, '00:00') : 0,
+    courseEndTs: course?.end ? atTime(course.end, '23:59') : 0,
+  }
+  const rows = leaves.map((task) => {
+    const parent = task.parentId ? (parentMap.get(task.parentId) || null) : null
+    return { task, warnings: task.status === 'done' ? [] : taskWarnings(task, tasks, data, deadline, parent, ignorePlanId, course, pre) }
   })
   const bad = rows.reduce((sum, row) => sum + row.warnings.filter((item) => item.level === 'bad').length, 0)
   const warn = rows.reduce((sum, row) => sum + row.warnings.filter((item) => item.level === 'warn').length, 0)
-  const placed = leafTasks(tasks).reduce((sum, task) => sum + (task.start && task.end ? spanHours(task.start, task.end) : 0), 0)
-  const need = leafTasks(tasks).reduce((sum, task) => sum + taskHours(task), 0)
-  const open = deadline > Date.now() ? openHours(data, Date.now(), deadline, ignorePlanId, deadline) : 0
-  const short = deadline > Date.now() && need > 0 && open + 0.05 < need
+  const placed = leaves.reduce((sum, task) => sum + (task.start && task.end ? spanHours(task.start, task.end) : 0), 0)
+  const need = leaves.reduce((sum, task) => sum + taskHours(task), 0)
+  const open = deadline > now ? openHours(data, now, deadline, ignorePlanId, deadline) : 0
+  const short = deadline > now && need > 0 && open + 0.05 < need
   let tone = 'ok'
   let title = 'Kế hoạch hợp lý: không trùng lịch, đủ giờ và kịp deadline'
   if (bad) { tone = 'bad'; title = `${bad} vấn đề cần xử lý trước khi xác nhận` }
@@ -967,11 +1007,26 @@ function planBounds(plan, data) {
 }
 
 function remainingFree(from, until, freeSlots, blocked) {
+  if (!freeSlots?.length || !(until > from)) return 0
   let count = 0
-  let cursor = roundUp30(from)
-  while (cursor + STEP <= until) {
-    if (slotFree(cursor, cursor + STEP, freeSlots, blocked)) count += 1
-    cursor += STEP
+  for (let day = startOfDay(from); day < until; day += DAY) {
+    const wd = weekdayMon(new Date(day))
+    const daySlots = freeSlots.filter((slot) => Number(slot.weekday) === wd)
+    if (!daySlots.length) continue
+    let minStart = Infinity
+    let maxEnd = 0
+    for (const slot of daySlots) {
+      const s = atTime(day, slot.start)
+      const e = atTime(day, slot.end)
+      if (s < minStart) minStart = s
+      if (e > maxEnd) maxEnd = e
+    }
+    let cursor = roundUp30(Math.max(from, minStart))
+    const limit = Math.min(until, maxEnd)
+    while (cursor + STEP <= limit) {
+      if (slotFree(cursor, cursor + STEP, daySlots, blocked)) count += 1
+      cursor += STEP
+    }
   }
   return count * 0.5
 }
@@ -1268,13 +1323,7 @@ export function openHours(data, from, until, ignorePlanId, displaceAfter = 0) {
     }
   }
   const blocked = classIntervals(data.courses, from, until).map((item) => [item.start, item.end]).concat(blocksOf(others))
-  let count = 0
-  let cursor = roundUp30(from)
-  while (cursor + STEP <= until) {
-    if (slotFree(cursor, cursor + STEP, data.freeSlots, blocked)) count += 1
-    cursor += STEP
-  }
-  return count * 0.5
+  return remainingFree(from, until, data.freeSlots, blocked)
 }
 
 export function slotClashClass(slot, courses) {
