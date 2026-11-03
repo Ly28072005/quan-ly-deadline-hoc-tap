@@ -745,13 +745,17 @@ function breakdownTasks(output, docs) {
   const docNote = docs?.length ? `Tài liệu môn: ${docs.map((doc) => doc.name).join(', ')}.` : ''
   const tasks = []
   groups.forEach((group, index) => {
-    const rawSplits = spreadHours(group.items.length, groupHours[index])
-    // Nang tung buoi len muc toi thieu theo do kho cua item tuong ung.
-    // Tong co the tang so voi groupHours neu task kho can them gio.
-    const splits = clampSplits(rawSplits, group.items)
-    const hours = roundHalf(splits.reduce((s, v) => s + v, 0))
+    // Moi item co ten rieng → moi item la 1 nhiem vu doc lap.
+    // Gio moi item = max(phan bo deu tu groupHours, minHoursForItem theo do kho).
+    // Tong group co the tang so voi groupHours neu nhieu task kho.
+    const basePerItem = roundHalf(Math.max(0.5, groupHours[index] / group.items.length))
+    const itemHours = group.items.map((item) => {
+      const min = minHoursForItem(item)
+      return basePerItem < min ? min : basePerItem
+    })
+    const hours = roundHalf(itemHours.reduce((s, v) => s + v, 0))
     const titled = group.title && fold(group.title) !== fold(group.items[0].name)
-    const parentNeeded = titled || splits.length > 1 || splits.some((value) => sittingsOf(value).length > 1)
+    const parentNeeded = titled || group.items.length > 1
     const parentId = parentNeeded ? uid('t') : ''
     const note = [estimate.summary, docNote].filter(Boolean).join(' ')
     if (parentNeeded) {
@@ -760,18 +764,7 @@ function breakdownTasks(output, docs) {
         start: 0, end: 0, status: 'todo', description: note, files: [], doneAt: 0, baseHours: hours,
       })
     }
-    if (splits.length === group.items.length) {
-      group.items.forEach((item, itemIndex) => pushLeaf(tasks, parentId, item.name, splits[itemIndex], note))
-      return
-    }
-    const per = group.items.length / splits.length
-    splits.forEach((chunk, sitting) => {
-      const from = Math.round(sitting * per)
-      const to = Math.max(from + 1, Math.round((sitting + 1) * per))
-      const slice = group.items.slice(from, to)
-      const name = slice[0]?.name || `${group.title || 'Nhiệm vụ'} · buổi ${sitting + 1}`
-      pushLeaf(tasks, parentId, name, chunk, note)
-    })
+    group.items.forEach((item, i) => pushLeaf(tasks, parentId, item.name, itemHours[i], note))
   })
   return { tasks, estimate }
 }
