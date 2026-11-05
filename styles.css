@@ -351,6 +351,9 @@ textarea.input { height: auto; }
 .n-ico.warning { background: var(--danger-soft); color: var(--danger); }
 .notice-title { font-size: 21px; font-weight: 800; letter-spacing: -0.02em; }
 .switch-row { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line-2); }
+.switch-row > span { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.switch-row > span .sub { font-size: 12.5px; line-height: 1.45; color: var(--muted); font-weight: 400; }
+.notice-body { white-space: pre-line; line-height: 1.6; }
 .switch-row input { appearance: none; -webkit-appearance: none; width: 44px; height: 26px; margin: 0; border: 0; border-radius: 999px; background-color: var(--line); background-image: radial-gradient(circle at 13px 13px, var(--paper) 10px, transparent 11px); cursor: pointer; flex: none; }
 .switch-row input:checked { background-color: var(--brand); background-image: radial-gradient(circle at 31px 13px, var(--paper) 10px, transparent 11px); }
 .chip-choice button { height: 34px; min-height: 34px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 0 12px; cursor: pointer; font-weight: 600; }

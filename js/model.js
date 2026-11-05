@@ -3,7 +3,7 @@
   formatISO, formatSpan, formatWhen, isoOf, minutes, pad, parseDate, roundUp30, startOfDay, uid, weekdayMon,
 } from './format.js'
 import { composeTutor } from './tutor.js'
-import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=75'
+import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=76'
 
 export { estimateWorkload, roundHalf }
 
@@ -37,7 +37,7 @@ export const SNOOZE_LIMIT = 3
 export function defaultSettings() {
   return {
     deadlineOn: true, scheduleOn: true, warningOn: true,
-    deadlineDays: 7, snoozeMinutes: 15, frequency: 'instant', push: false,
+    deadlineDays: [7, 3, 1], snoozeMinutes: 15, frequency: 'instant', push: false,
     aiAck: false,
   }
 }
@@ -1636,67 +1636,144 @@ export function monthCells(anchor) {
   return Array.from({ length: 42 }, (_, index) => start + index * DAY)
 }
 
-function noticeBody(kind, payload) {
-  if (kind === 'deadline') return `Kế hoạch "${payload.name}" đến hạn ${formatDMY(payload.deadline)} ${clock(payload.deadline)}. Mở kế hoạch để xem các nhiệm vụ còn lại.`
-  if (kind === 'schedule') return `Hôm nay bạn có ${payload.count} nhiệm vụ: ${payload.list}.`
-  if (kind === 'overdue') return `Nhiệm vụ "${payload.name}" đã qua giờ kết thúc nhưng chưa được đánh dấu hoàn thành. Hãy dời sang khung trống hoặc cập nhật trạng thái.`
-  return `Môn ${payload.name} đang học nhưng chưa có kế hoạch. Lịch trên lớp: ${payload.schedule || 'chưa khai báo'}.`
+// ---------- Notifications ----------
+// Nhắc deadline   : nhiệm vụ hôm nay (giờ làm), nhiệm vụ sắp đến giờ, kế hoạch sắp đến hạn (theo mốc 7/3/1 ngày người dùng chọn)
+// Nhắc lịch học   : buổi học trên lớp hôm nay, buổi học sắp bắt đầu
+// Cảnh báo kế hoạch: kế hoạch quá hạn, nhiệm vụ quá hạn, môn đang học chưa có kế hoạch
+
+export const DEADLINE_MILESTONES = [7, 3, 1]
+export const SOON_MINUTES = 30
+
+// Milestones the user picked (days before a plan deadline). Old saves kept one number.
+export function deadlineMilestones(settings) {
+  const raw = Array.isArray(settings?.deadlineDays) ? settings.deadlineDays : [settings?.deadlineDays]
+  return DEADLINE_MILESTONES.filter((day) => raw.map(Number).includes(day))
+}
+
+function span(item) {
+  return `${clock(item.start)}–${clock(item.end)}`
 }
 
 export function desiredNotices(data, now) {
   const settings = { ...defaultSettings(), ...data.settings }
-  const deliverAt = settings.frequency === 'batch' ? nextBatch(now) : now
+  const batchAt = settings.frequency === 'batch' ? nextBatch(now) : now
+  const soonUntil = now + SOON_MINUTES * 60000
   const view = buildView({ ...data, notices: [] }, now)
+  const today = dateISO(now)
   const list = []
+
   if (settings.deadlineOn) {
-    for (const plan of view.plans) {
-      if (plan.stats.status === 'done') continue
-      const late = plan.deadline < now
-      const days = daysUntil(plan.deadline, now)
-      if (!late && days > settings.deadlineDays) continue
-      list.push({
-        key: `deadline:${plan.id}:${plan.deadline}`, type: 'deadline',
-        title: late ? `Quá hạn: ${plan.name}` : `Sắp đến hạn: ${plan.name}`,
-        body: noticeBody('deadline', plan), planId: plan.id, taskId: '', courseId: plan.courseId || '', deliverAt,
-      })
-    }
-  }
-  if (settings.scheduleOn) {
-    const tasks = view.today.filter((item) => item.kind === 'task')
+    const tasks = view.today.filter((item) => item.kind === 'task' && item.view !== 'done')
     if (tasks.length) {
       list.push({
-        key: `schedule:${dateISO(now)}`, type: 'schedule',
-        title: `Hôm nay có ${tasks.length} nhiệm vụ`,
-        body: noticeBody('schedule', { count: tasks.length, list: tasks.map((task) => `${clock(task.start)} ${task.name}`).join(', ') }),
-        planId: tasks[0].plan.id, taskId: tasks[0].id, courseId: '', deliverAt,
+        key: `today:${today}`, type: 'deadline',
+        title: `Hôm nay có ${tasks.length} nhiệm vụ cần làm`,
+        body: tasks.map((task) => `• ${span(task)} ${task.name}${task.courseName ? ` (${task.courseName})` : ''}`).join('\n'),
+        planId: tasks[0].plan.id, taskId: tasks.length === 1 ? tasks[0].id : '', courseId: '', deliverAt: batchAt,
+      })
+    }
+    // A heads-up only helps before the task starts, so it never waits for a batch slot.
+    for (const task of view.leaves) {
+      if (task.view === 'done' || !task.start || task.start <= now || task.start > soonUntil) continue
+      const mins = Math.max(1, Math.round((task.start - now) / 60000))
+      list.push({
+        key: `soon:${task.id}:${task.start}`, type: 'deadline',
+        title: `Sắp đến giờ làm: ${task.name}`,
+        body: `Nhiệm vụ "${task.name}" bắt đầu lúc ${clock(task.start)} (còn khoảng ${mins} phút), làm đến ${clock(task.end)}. Thuộc ${task.plan.name}.`,
+        planId: task.plan.id, taskId: task.id, courseId: task.plan.courseId || '', deliverAt: now,
+      })
+    }
+    const marks = deadlineMilestones(settings)
+    for (const plan of view.plans) {
+      if (plan.stats.status === 'done' || plan.deadline < now) continue
+      const days = daysUntil(plan.deadline, now)
+      const mark = [...marks].reverse().find((day) => days <= day)
+      if (!mark) continue
+      const left = leafTasks(plan.tasks).filter((task) => taskStatus(task, now) !== 'done').length
+      list.push({
+        key: `plan:${plan.id}:${plan.deadline}:${mark}`, type: 'deadline',
+        title: days <= 0 ? `Hạn nộp hôm nay: ${plan.name}` : `Còn ${days} ngày đến hạn: ${plan.name}`,
+        body: `Kế hoạch "${plan.name}" hạn nộp ${clock(plan.deadline)} ngày ${formatDMY(plan.deadline)}. Đã xong ${Math.round(plan.stats.ratio * 100)}%, còn ${left} nhiệm vụ chưa làm.`,
+        planId: plan.id, taskId: '', courseId: plan.courseId || '', deliverAt: batchAt,
       })
     }
   }
+
+  if (settings.scheduleOn) {
+    const classes = view.today.filter((item) => item.kind === 'class')
+    if (classes.length) {
+      list.push({
+        key: `class:${today}`, type: 'schedule',
+        title: `Hôm nay có ${classes.length} buổi học trên lớp`,
+        body: classes.map((item) => `• ${span(item)} ${item.name}${item.room ? ` · ${item.room}` : ''}`).join('\n'),
+        planId: '', taskId: '', courseId: classes.length === 1 ? classes[0].courseId : '', deliverAt: batchAt,
+      })
+    }
+    for (const item of classes) {
+      if (item.start <= now || item.start > soonUntil) continue
+      const mins = Math.max(1, Math.round((item.start - now) / 60000))
+      list.push({
+        key: `classsoon:${item.courseId}:${item.start}`, type: 'schedule',
+        title: `Sắp vào học: ${item.name} lúc ${clock(item.start)}`,
+        body: `Buổi học ${item.name} ${span(item)}${item.room ? `, ${item.room}` : ''}. Còn khoảng ${mins} phút.`,
+        planId: '', taskId: '', courseId: item.courseId, deliverAt: now,
+      })
+    }
+  }
+
   if (settings.warningOn) {
+    for (const plan of view.plans) {
+      if (plan.stats.status === 'done' || plan.deadline >= now) continue
+      list.push({
+        key: `planlate:${plan.id}:${plan.deadline}`, type: 'warning',
+        title: `Kế hoạch quá hạn: ${plan.name}`,
+        body: `Kế hoạch "${plan.name}" đã quá hạn nộp ${clock(plan.deadline)} ngày ${formatDMY(plan.deadline)} nhưng mới xong ${Math.round(plan.stats.ratio * 100)}%. Mở kế hoạch để hoàn tất hoặc dời hạn.`,
+        planId: plan.id, taskId: '', courseId: plan.courseId || '', deliverAt: batchAt,
+      })
+    }
     for (const task of view.overdue) {
       list.push({
-        key: `over:${task.id}`, type: 'warning', title: `Quá hạn: ${task.name}`,
-        body: noticeBody('overdue', task), planId: task.plan.id, taskId: task.id, courseId: task.plan.courseId || '', deliverAt,
+        key: `over:${task.id}`, type: 'warning', title: `Nhiệm vụ quá hạn: ${task.name}`,
+        body: `Nhiệm vụ "${task.name}" đã qua giờ kết thúc ${clock(task.end)} ngày ${formatDMY(task.end)} nhưng chưa được đánh dấu hoàn thành. Hãy dời sang khung trống hoặc cập nhật trạng thái.`,
+        planId: task.plan.id, taskId: task.id, courseId: task.plan.courseId || '', deliverAt: batchAt,
       })
     }
     for (const course of view.unplanned) {
       const schedule = (course.schedule || []).map((slot) => `${WEEKDAYS.find((day) => day.id === Number(slot.weekday))?.short || ''} ${slot.start}–${slot.end}`).join(', ')
       list.push({
         key: `noplan:${course.id}`, type: 'warning', title: `Môn ${course.name} chưa có kế hoạch`,
-        body: noticeBody('course', { name: course.name, schedule }), planId: '', taskId: '', courseId: course.id, deliverAt,
+        body: `Môn ${course.name} đang học nhưng chưa có kế hoạch. Lịch trên lớp: ${schedule || 'chưa khai báo'}.`,
+        planId: '', taskId: '', courseId: course.id, deliverAt: batchAt,
       })
     }
   }
   return list
 }
 
-export function mergeNotices(existing, desired, now) {
+// Which saved notices no longer apply and should disappear.
+function staleNotice(notice, wanted, data) {
+  const key = String(notice.key || '')
+  if (wanted.has(key)) return false
+  // Live warnings vanish once fixed.
+  if (/^(over|noplan|planlate):/.test(key)) return true
+  // Plan reminders vanish when the plan is done, deleted or its deadline moved.
+  if (key.startsWith('plan:')) {
+    const [, planId, deadline] = key.split(':')
+    const plan = (data?.plans || []).find((item) => item.id === planId)
+    if (!plan || String(plan.deadline) !== deadline) return true
+    return leafTasks(plan.tasks).length > 0 && leafTasks(plan.tasks).every((task) => task.status === 'done')
+  }
+  // Notices made by the old rules (one "deadline" per plan, "schedule" = today's tasks).
+  return /^(deadline|schedule):/.test(key)
+}
+
+export function mergeNotices(existing, desired, now, data = null) {
   const wanted = new Map(desired.map((item) => [item.key, item]))
   let changed = false
   const current = existing.filter((notice) => {
-    if (wanted.has(notice.key)) return true
-    if (String(notice.key).startsWith('over:') || String(notice.key).startsWith('noplan:')) { changed = true; return false }
-    return true
+    if (!staleNotice(notice, wanted, data)) return true
+    changed = true
+    return false
   })
   const notices = current.map((notice) => {
     const next = wanted.get(notice.key)

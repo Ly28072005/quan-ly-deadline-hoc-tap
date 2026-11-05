@@ -2,14 +2,15 @@ import { createStore } from './store.js'
 import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
-} from './model.js?v=75'
+  deadlineMilestones, noticeDue,
+} from './model.js?v=76'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=75'
-import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=75'
-import { esc, icon, logo } from './html.js?v=75'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=75'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=75'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=75'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=76'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=76'
+import { esc, icon, logo } from './html.js?v=76'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=76'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=76'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=76'
 
 const store = createStore()
 const NAV = [
@@ -1042,6 +1043,15 @@ function onClick(event) {
     render()
     toast('Đã lưu cài đặt')
   }
+  if (act === 'toggle-mark') {
+    // Several milestones may be on at once (e.g. 7 and 1 day before the deadline).
+    const day = Number(node.dataset.value)
+    const marks = deadlineMilestones(store.settings())
+    const next = marks.includes(day) ? marks.filter((item) => item !== day) : [...marks, day]
+    store.setSettings({ deadlineDays: next })
+    render()
+    toast(next.length ? 'Đã lưu mốc nhắc hạn' : 'Đã tắt nhắc kế hoạch sắp đến hạn')
+  }
 }
 
 function finishNotice(id, done) {
@@ -1626,5 +1636,40 @@ store.init().then(() => {
     aiLive = live
     if (store.current()) render()
   })
+  window.setInterval(noticeTick, 60000)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) noticeTick() })
 })
+
+// Every minute: create reminders that just became due (task/class starting soon, batch slot reached…).
+// Only the bell badge and a toast change, so a form being typed in is never re-rendered.
+let lastDue = -1
+function noticeTick() {
+  if (!store.current()) { lastDue = -1; return }
+  const { due } = store.tick()
+  if (lastDue >= 0 && due > lastDue) {
+    const now = Date.now()
+    const latest = store.snapshot().notices
+      .filter((notice) => noticeDue(notice, now))
+      .sort((a, b) => b.createdAt - a.createdAt)[0]
+    toast(latest ? latest.title : `Bạn có ${due} thông báo mới`, { label: 'Xem', run: () => navigate('#/thong-bao') })
+  }
+  if (due !== lastDue) {
+    lastDue = due
+    updateBadge(due)
+    if (route.name === 'notices') render()
+  }
+}
+
+function updateBadge(count) {
+  document.querySelectorAll('a[href="#/thong-bao"]').forEach((link) => {
+    let badge = link.querySelector('.badge')
+    if (!count) { badge?.remove(); return }
+    if (!badge) {
+      badge = document.createElement('b')
+      badge.className = 'badge'
+      link.appendChild(badge)
+    }
+    badge.textContent = String(count)
+  })
+}
 

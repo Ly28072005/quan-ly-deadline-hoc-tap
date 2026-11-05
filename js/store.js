@@ -1,6 +1,6 @@
 import {
   alignPlansToOutput, createDemo, defaultSettings, desiredNotices, emptyData, fileType, mergeNotices, SNOOZE_LIMIT, unreadCount, welcomeMessage,
-} from './model.js?v=75'
+} from './model.js?v=76'
 import { atTime, isoOf, uid } from './format.js'
 
 const ACCOUNTS = 'sf-accounts-v1'
@@ -64,7 +64,7 @@ export function createStore() {
     if (user) writeRaw(dataKey(user.email), JSON.stringify(data))
   }
   function sync(now = Date.now()) {
-    const merged = mergeNotices(data.notices, desiredNotices(data, now), now)
+    const merged = mergeNotices(data.notices, desiredNotices(data, now), now, data)
     if (merged.changed) data.notices = merged.notices
     return merged
   }
@@ -113,6 +113,13 @@ export function createStore() {
     },
     current() { return user },
     snapshot() { sync(); return data },
+    // Called every minute while the app is open: makes due reminders appear without a click.
+    tick(now = Date.now()) {
+      if (!user) return { created: [], due: 0 }
+      const merged = sync(now)
+      if (merged.changed) writeData()
+      return { created: merged.created, due: unreadCount(data.notices, now) }
+    },
     settings() { return data.settings },
     unread(now = Date.now()) { return unreadCount(data.notices, now) },
     hasAccount(email) { return !!accounts[String(email || '').trim().toLowerCase()] },
