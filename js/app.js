@@ -3,14 +3,14 @@ import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
   batchHoursOf, deadlineMilestones, noticeDue,
-} from './model.js?v=80'
+} from './model.js?v=81'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=80'
-import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=80'
-import { esc, icon, logo } from './html.js?v=80'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=80'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=80'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=80'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=81'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=81'
+import { esc, icon, logo } from './html.js?v=81'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=81'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=81'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=81'
 
 const store = createStore()
 const NAV = [
@@ -159,7 +159,16 @@ function blankAi(data) {
   }
 }
 function blankManual() {
-  return { id: '', name: '', courseId: '', date: '', time: '', output: '', tasks: [{ id: uid('t'), parentId: '', name: '', start: '', end: '', status: 'todo', files: [] }], checked: false, errors: {} }
+  return { id: '', name: '', courseId: '', date: '', time: '', output: '', tasks: newSection(), checked: false, errors: {} }
+}
+
+// A section (heading only, no dates) plus its first empty task row.
+function newSection() {
+  const id = uid('t')
+  return [
+    { id, parentId: '', name: '', start: '', end: '', status: 'todo', files: [] },
+    { id: uid('t'), parentId: id, name: '', date: '', start: '', end: '', status: 'todo', files: [] },
+  ]
 }
 
 function prepare() {
@@ -208,12 +217,17 @@ function manualFromPlan(plan) {
   return {
     id: plan.id, name: plan.name, courseId: plan.courseId || '', date: dateISO(plan.deadline), time: clock(plan.deadline),
     output: '', checked: false, errors: {},
-    tasks: plan.tasks.map((task) => task.parentId ? {
-      ...task, date: task.start ? dateISO(task.start) : '', start: task.start ? clock(task.start) : '', end: task.end ? clock(task.end) : '',
-    } : {
-      ...task,
-      start: task.start ? `${dateISO(task.start)}T${clock(task.start)}` : '',
-      end: task.end ? `${dateISO(task.end)}T${clock(task.end)}` : '',
+    tasks: plan.tasks.flatMap((task) => {
+      const asRow = (item, parentId) => ({
+        ...item, parentId, date: item.start ? dateISO(item.start) : '', start: item.start ? clock(item.start) : '', end: item.end ? clock(item.end) : '',
+      })
+      if (task.parentId) return [asRow(task, task.parentId)]
+      // Older plans used a lone top-level item as a timed task: keep it as a task under a section of the same name.
+      if (!plan.tasks.some((kid) => kid.parentId === task.id)) {
+        const sectionId = uid('t')
+        return [{ id: sectionId, parentId: '', name: task.name, start: '', end: '', status: 'todo', files: [] }, asRow(task, sectionId)]
+      }
+      return [{ ...task, start: '', end: '' }]
     }),
   }
 }
@@ -952,8 +966,30 @@ function onClick(event) {
   if (act === 'ai-stop') { window.clearInterval(aiTimer); if (ai) ai.step = 1; render() }
   if (act === 'ai-redo') { if (ai) { ai.step = 1; render() } }
   if (act === 'ai-rebuild') rebuildAi()
-  if (act === 'ai-add') { ai.tasks.push({ id: uid('t'), parentId: '', name: 'Nhiệm vụ mới', hours: 1.5, start: 0, end: 0, status: 'todo', description: '', files: [], doneAt: 0 }); render() }
-  if (act === 'ai-del') { window.clearTimeout(hoursInputTimer); if (ai) ai.typingHours = null; ai.tasks = ai.tasks.filter((task) => task.id !== node.dataset.id && task.parentId !== node.dataset.id); render() }
+  if (act === 'ai-add') {
+    // A new task joins the last section, so it shows under that heading.
+    const sections = ai.tasks.filter((task) => isParent(task, ai.tasks))
+    const parentId = sections.length ? sections[sections.length - 1].id : ''
+    ai.tasks.push(newAiTask(parentId))
+    render()
+  }
+  if (act === 'ai-add-section') {
+    // A section is only a heading; it starts with one task so it is never empty.
+    const sectionId = uid('t')
+    const count = ai.tasks.filter((task) => isParent(task, ai.tasks)).length
+    ai.tasks.push({ id: sectionId, parentId: '', name: `Phần ${count + 1}`, hours: 0, start: 0, end: 0, status: 'todo', description: '', files: [], doneAt: 0 })
+    ai.tasks.push(newAiTask(sectionId))
+    render()
+  }
+  if (act === 'ai-del') {
+    window.clearTimeout(hoursInputTimer)
+    if (ai) ai.typingHours = null
+    const gone = ai.tasks.find((task) => task.id === node.dataset.id)
+    ai.tasks = ai.tasks.filter((task) => task.id !== node.dataset.id && task.parentId !== node.dataset.id)
+    // Drop a section whose last task was just removed.
+    if (gone?.parentId && !ai.tasks.some((task) => task.parentId === gone.parentId)) ai.tasks = ai.tasks.filter((task) => task.id !== gone.parentId)
+    render()
+  }
   if (act === 'hours-step' && ai) {
     const stepTask = ai.tasks.find((t) => t.id === node.dataset.id)
     if (stepTask) {
@@ -990,7 +1026,7 @@ function onClick(event) {
   }
   if (act === 'ai-confirm') confirmAi()
   if (act === 'ai-compress') { compressPreview(); return }
-  if (act === 'add-parent') { manual.tasks.push({ id: uid('t'), parentId: '', name: '', start: '', end: '', status: 'todo', files: [] }); render() }
+  if (act === 'add-parent') { syncManualTasks(); manual.tasks.push(...newSection()); render() }
   if (act === 'add-child') addChild(node.dataset.id)
   if (act === 'del-node') { manual.tasks = manual.tasks.filter((task) => task.id !== node.dataset.id && task.parentId !== node.dataset.id); render() }
   if (act === 'man-fix') applyManualFix(node.dataset.id)
@@ -1168,11 +1204,17 @@ function applyManualFix(id) {
   toast('Đã chuyển nhiệm vụ')
 }
 
+function newAiTask(parentId) {
+  return { id: uid('t'), parentId, name: 'Nhiệm vụ mới', hours: 1.5, start: 0, end: 0, status: 'todo', description: '', files: [], doneAt: 0 }
+}
+
 function addChild(parentId) {
-  const parent = materialize(manual).find((task) => task.id === parentId)
+  syncManualTasks()
+  // Sections have no dates now, so suggest the first free hour before the plan deadline.
   const data = store.snapshot()
-  const window = parent?.start && parent.end > parent.start ? findWindow({
-    duration: 3600000, from: Math.max(parent.start, Date.now()), until: parent.end, freeSlots: data.freeSlots, blocked: [],
+  const until = deadlineOf(manual)
+  const window = until > Date.now() ? findWindow({
+    duration: 3600000, from: Date.now(), until, freeSlots: data.freeSlots, blocked: [],
   }) : null
   manual.tasks.push({
     id: uid('t'), parentId, name: '', status: 'todo', files: [],

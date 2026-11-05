@@ -315,9 +315,16 @@ textarea.input { height: auto; }
 .color-wheel:focus-within { outline: 2px solid var(--ink); outline-offset: 2px; }
 .color-wheel input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; border: 0; padding: 0; }
 .color-wheel-plus { position: absolute; inset: 7px; border-radius: 50%; background: var(--surface); color: var(--ink); display: grid; place-items: center; pointer-events: none; box-shadow: 0 1px 2px rgba(16, 34, 26, .18); }
-/* Full-width "add" button at the end of a task list. */
-.btn.add-row { width: 100%; height: 46px; margin-top: 10px; background: var(--brand-soft); color: var(--brand); font-weight: 800; border: 1px dashed color-mix(in srgb, var(--brand) 35%, transparent); }
+/* "Add task" / "Add section" buttons at the end of a task list: soft brand fill, sized to their label. */
+.add-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.btn.add-row { width: auto; padding: 0 16px; background: var(--brand-soft); color: var(--brand); font-weight: 800; border: 1px dashed color-mix(in srgb, var(--brand) 35%, transparent); }
 .btn.add-row:hover { background: color-mix(in srgb, var(--brand) 18%, var(--surface)); border-style: solid; }
+/* Section name in the AI review list: reads like the old small heading, editable in place. */
+.section-name { display: block; width: 100%; margin: 14px 0 6px; padding: 4px 6px; border: 1px solid transparent; border-radius: 8px; background: transparent; font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); }
+.section-name:hover { border-color: var(--line); }
+.section-name:focus { outline: none; border-color: var(--brand); background: var(--surface); text-transform: none; }
+/* Section name in the manual form: a heading row, no dates. */
+.parent-head .section-input { font-weight: 700; }
 .date-field { position: relative; display: block; min-width: 0; }
 .date-field > .input { padding-right: 38px; }
 .date-field .date-btn { position: absolute; right: 2px; top: 2px; width: 38px; height: 38px; min-height: 38px; border: 0; background: transparent; color: var(--muted); }
@@ -460,7 +467,8 @@ textarea.input { height: auto; }
 .alert-strip.info::before { display: none; }
 .alert-strip button, .alert-strip .btn { margin-left: auto; height: auto; min-height: 28px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 7px; padding: 4px 10px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: normal; text-align: left; text-decoration: none; display: inline-flex; align-items: center; }
 .parent-block { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin-bottom: 10px; background: var(--surface); }
-.parent-head, .child-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(168px, 200px) minmax(168px, 200px) 36px; gap: 6px; align-items: center; }
+.child-row { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(168px, 200px) minmax(168px, 200px) 36px; gap: 6px; align-items: center; }
+.parent-head { display: grid; grid-template-columns: minmax(0, 1fr) 36px; gap: 6px; align-items: center; }
 .child-row { grid-template-columns: 16px minmax(0, 1.2fr) 132px 100px 100px 36px; margin-top: 8px; position: relative; }
 .input::placeholder { color: var(--muted); opacity: 1; }
 .elbow { width: 12px; height: 18px; border-left: 1.5px solid var(--line); border-bottom: 1.5px solid var(--line); }
@@ -650,7 +658,7 @@ textarea.input { height: auto; }
   .plan-del { grid-column: 3; grid-row: 1; }
   .tr { grid-template-columns: 1fr 1fr; }
   .tr.head { display: none; }
-  .parent-head, .child-row { grid-template-columns: 1fr; }
+  .child-row { grid-template-columns: 1fr; }
   .tools-row { flex-wrap: wrap; }
   .tools-row .search, .tools-row > .select { flex: 1 1 100%; width: 100%; }
   .slot-form, .inline-add { grid-template-columns: 1fr 1fr; }

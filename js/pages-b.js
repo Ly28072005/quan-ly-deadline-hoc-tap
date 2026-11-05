@@ -1,6 +1,6 @@
-import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, parseStamp, showDate, showStamp } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=80'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=80'
+import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, showDate } from './format.js'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=81'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=81'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -193,7 +193,10 @@ function aiReview(ctx) {
           <div class="tr head"><span>#</span><span>Nhiệm vụ</span><span>Cần (giờ)</span><span>Ngày</span><span>Bắt đầu</span><span>Kết thúc</span><span></span></div>
           ${reviewRows(ai.tasks, { ...ctx, planShort: load.short, warnMap: new Map(review.rows.map((row) => [row.task.id, row.warnings])) })}
         </div>
-        <button class="btn add-row" type="button" data-act="ai-add">+ Thêm nhiệm vụ</button>
+        <div class="add-actions">
+          <button class="btn add-row" type="button" data-act="ai-add">+ Thêm nhiệm vụ</button>
+          <button class="btn add-row" type="button" data-act="ai-add-section">+ Thêm phần</button>
+        </div>
       </section>`,
   }
 }
@@ -218,7 +221,7 @@ function reviewRows(tasks, ctx) {
   const seen = new Set()
   const chunks = []
   for (const parent of parents) {
-    chunks.push(`<p class="k">${esc(parent.name)}</p>`)
+    chunks.push(`<input class="section-name" data-act="ai-field" data-id="${parent.id}" data-key="name" value="${esc(parent.name || '')}" placeholder="Tên phần" aria-label="Tên phần">`)
     for (const task of leaves.filter((item) => item.parentId === parent.id)) {
       seen.add(task.id)
       chunks.push(taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort, pendingId, warnMap, typingHours))
@@ -344,12 +347,12 @@ export function renderManual(ctx) {
         ${e.free ? `<p class="err">${esc(e.free)} <a href="#/lich/ranh">Thêm giờ rảnh</a></p>` : ''}
       </section>
       <section class="card pad">
-        <div class="block-head"><h2>Yêu cầu đầu ra</h2><span class="fine">Mỗi dòng có ngày bắt đầu và ngày kết thúc</span></div>
+        <div class="block-head"><h2>Yêu cầu đầu ra</h2></div>
         ${e.tasks ? `<p class="err">${esc(e.tasks)}</p>` : ''}
         ${badNotes.length ? banner('bad', 'Giờ hoặc ngày chưa hợp lý', badNotes.map((item) => item.text).join(' ')) : ''}
         ${warnNotes.length ? banner('warn', 'Lưu ý về giờ và ngày', warnNotes.map((item) => item.text).join(' ')) : ''}
         ${(form.tasks || []).filter((task) => !task.parentId).map((parent) => parentBlock(parent, form, ctx, review)).join('')}
-        <button class="symbol-add" type="button" data-act="add-parent" aria-label="Thêm dòng" title="Thêm dòng">+</button>
+        <div class="add-actions"><button class="btn add-row" type="button" data-act="add-parent">+ Thêm phần</button></div>
       </section>
     </form>`,
   }
@@ -384,12 +387,6 @@ function reviewManual(form, ctx) {
   return reviewTasks(tasks, ctx.data, deadlineOf(form), form.id, course)
 }
 
-function dateIsoOf(value) {
-  const text = String(value || '')
-  if (/^\d{4}-\d{2}-\d{2}/.test(text)) return text.slice(0, 10)
-  return isoOf(showStamp(text).split(' ')[0] || text)
-}
-
 function dateOrderError(start, end) {
   const from = isoOf(start)
   const until = isoOf(end)
@@ -399,17 +396,13 @@ function dateOrderError(start, end) {
 
 function parentBlock(parent, form, ctx, review) {
   const kids = (form.tasks || []).filter((task) => task.parentId === parent.id)
-  const startTs = stampTime(parent.start)
-  const endTs = stampTime(parent.end)
-  const inverted = startTs && endTs && endTs <= startTs
+  // A section is only a heading: its name says which part the tasks below belong to.
   return `<div class="parent-block">
     <div class="parent-head">
-      <input class="input" data-act="man-field" data-id="${parent.id}" data-key="name" value="${esc(parent.name || '')}" placeholder="Nhập tên">
-      ${wrapDate(`<input class="input${inverted ? ' bad' : ''}" data-act="man-field" data-id="${parent.id}" data-key="start" placeholder="dd/mm/yyyy hh:mm" value="${esc(showStamp(parent.start))}" aria-label="Bắt đầu">`, dateIsoOf(parent.start))}
-      ${wrapDate(`<input class="input${inverted ? ' bad' : ''}" data-act="man-field" data-id="${parent.id}" data-key="end" placeholder="dd/mm/yyyy hh:mm" value="${esc(showStamp(parent.end))}" aria-label="Kết thúc">`, dateIsoOf(parent.end))}
-      <button class="icon-btn" type="button" data-act="del-node" data-id="${parent.id}" aria-label="Xóa mục">${icon('trash', 16)}</button>
+      <input class="input section-input" data-act="man-field" data-id="${parent.id}" data-key="name" value="${esc(parent.name || '')}" placeholder="Tên phần (ví dụ: Phần 1 – Phân tích yêu cầu)" aria-label="Tên phần">
+      <button class="icon-btn" type="button" data-act="del-node" data-id="${parent.id}" aria-label="Xóa phần">${icon('trash', 16)}</button>
     </div>
-    ${inverted ? '<p class="err">Ngày bắt đầu phải trước ngày kết thúc.</p>' : kids.length ? '' : kidWarn(parent, form, ctx, review)}
+    ${kids.length ? '' : '<p class="err">Phần này chưa có nhiệm vụ. Bấm + để thêm.</p>'}
     ${kids.map((kid) => `<div class="child-row"><span class="elbow"></span>
       <input class="input" data-act="man-field" data-id="${kid.id}" data-key="name" value="${esc(kid.name || '')}" placeholder="Nhập tên">
       ${wrapDate(`<input class="input" data-act="man-field" data-id="${kid.id}" data-key="date" placeholder="dd/mm/yyyy" inputmode="numeric" value="${esc(showDate(kid.date))}" aria-label="Ngày">`, isoOf(kid.date))}
@@ -432,16 +425,6 @@ function kidWarn(kid, form, ctx, review) {
   return `<div class="child-warn">${shown.map((item, index) => `<div class="alert-strip ${item.level}">${esc(item.text)}${index === 0 && fix ? `<button type="button" data-act="man-fix" data-id="${kid.id}">${esc(fix.label)}</button>` : ''}</div>`).join('')}</div>`
 }
 
-function stampOf(value) {
-  if (!value) return ''
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) return value.slice(0, 16)
-  return parseStamp(value)
-}
-function stampTime(value) {
-  const stamp = stampOf(value)
-  if (!stamp) return 0
-  return atTime(stamp.slice(0, 10), stamp.slice(11, 16))
-}
 
 export function manualIssues(form) {
   const errors = {}
@@ -451,10 +434,7 @@ export function manualIssues(form) {
       break
     }
     if (!task.parentId) {
-      const start = stampTime(task.start)
-      const end = stampTime(task.end)
-      if (!start || !end) { errors.tasks = 'Nhập đủ ngày bắt đầu và ngày kết thúc của từng đầu mục.'; break }
-      if (end <= start) { errors.tasks = 'Ngày kết thúc phải sau ngày bắt đầu.'; break }
+      if (!(form.tasks || []).some((kid) => kid.parentId === task.id)) { errors.tasks = `Phần "${task.name}" chưa có nhiệm vụ.`; break }
     } else {
       const day = isoOf(task.date)
       if (!day || !task.start || !task.end) { errors.tasks = 'Nhập đủ ngày và giờ của từng đầu mục.'; break }
@@ -465,16 +445,21 @@ export function manualIssues(form) {
 }
 
 export function materialize(form) {
-  return (form.tasks || []).map((task) => {
-    if (!task.parentId) {
-      const start = stampTime(task.start)
-      const end = stampTime(task.end)
-      return { ...task, start, end, hours: start && end ? (end - start) / 3600000 : 1, status: task.status || 'todo', files: task.files || [] }
-    }
+  const kids = (form.tasks || []).filter((task) => task.parentId).map((task) => {
     const day = isoOf(task.date)
     const start = day && task.start ? atTime(day, task.start) : 0
     const end = day && task.end ? atTime(day, task.end) : 0
     return { ...task, start, end, hours: task.hours || (start && end ? (end - start) / 3600000 : 1), status: task.status || 'todo', files: task.files || [] }
+  })
+  return (form.tasks || []).map((task) => {
+    if (task.parentId) return kids.find((kid) => kid.id === task.id)
+    // A section spans its tasks: earliest start to latest end, hours summed.
+    const mine = kids.filter((kid) => kid.parentId === task.id)
+    const timed = mine.filter((kid) => kid.start && kid.end)
+    const start = timed.length ? Math.min(...timed.map((kid) => kid.start)) : 0
+    const end = timed.length ? Math.max(...timed.map((kid) => kid.end)) : 0
+    const hours = mine.reduce((sum, kid) => sum + (Number(kid.hours) || 0), 0) || 1
+    return { ...task, start, end, hours, status: task.status || 'todo', files: task.files || [] }
   })
 }
 
