@@ -3,7 +3,7 @@
   formatISO, formatSpan, formatWhen, isoOf, minutes, pad, parseDate, roundUp30, startOfDay, uid, weekdayMon,
 } from './format.js'
 import { composeTutor } from './tutor.js'
-import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=71'
+import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=72'
 
 export { estimateWorkload, roundHalf }
 
@@ -886,15 +886,31 @@ function pushLeaf(tasks, parentId, name, hours, note = '') {
   })
 }
 
-function breakdownTasks(output, docs) {
+// AI groups come from api/tutor.js plan mode: [{ title, items: [{ name, detail, hours }] }]
+function aiOutputGroups(aiGroups) {
+  return (aiGroups || []).map((group) => ({
+    title: sentenceCase(String(group.title || '').trim()),
+    items: (group.items || [])
+      .filter((item) => String(item?.name || '').trim())
+      .map((item) => ({
+        name: sentenceCase(String(item.name).trim()),
+        heading: sentenceCase(String(group.title || '').trim()),
+        text: String(item.detail || item.name).trim(),
+        hours: Math.min(6, Math.max(0.5, roundHalf(Number(item.hours) || 1))),
+      })),
+  })).filter((group) => group.items.length)
+}
+
+function breakdownTasks(output, docs, aiGroups) {
   const estimate = estimateWorkload(output)
-  const groups = outputGroups(output)
+  const fromAi = aiOutputGroups(aiGroups)
+  const groups = fromAi.length ? fromAi : outputGroups(output)
   if (!groups.length) return { tasks: [], estimate }
   const docNote = docs?.length ? `Tài liệu môn: ${docs.map((doc) => doc.name).join(', ')}.` : ''
   const tasks = []
   groups.forEach((group) => {
-    // Gán giờ trực tiếp theo độ khó của từng nhiệm vụ (0.5h / 1h / 1.5h / 2h+)
-    const itemHours = group.items.map((item) => minHoursForItem(item))
+    // AI đã ước giờ cho từng nhiệm vụ; nếu không có thì gán theo độ khó (0.5h / 1h / 1.5h / 2h+)
+    const itemHours = group.items.map((item) => item.hours || minHoursForItem(item))
     const hours = roundHalf(itemHours.reduce((s, v) => s + v, 0))
     const titled = group.title && fold(group.title) !== fold(group.items[0].name)
     const parentNeeded = titled || group.items.length > 1
@@ -911,8 +927,8 @@ function breakdownTasks(output, docs) {
   return { tasks, estimate }
 }
 
-export function suggestPlan({ course, output, docs, deadline, start, data, ignorePlanId }) {
-  const made = breakdownTasks(output, docs)
+export function suggestPlan({ course, output, docs, deadline, start, data, ignorePlanId, aiGroups }) {
+  const made = breakdownTasks(output, docs, aiGroups)
   if (!made.tasks.length) {
     return { tasks: [], comment: 'Chưa có yêu cầu đầu ra để chia nhiệm vụ.', source: 'sim', estimate: made.estimate }
   }

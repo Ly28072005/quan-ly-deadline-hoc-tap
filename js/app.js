@@ -2,14 +2,14 @@ import { createStore } from './store.js'
 import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
-} from './model.js?v=71'
+} from './model.js?v=72'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=71'
-import { aiName, askClaude, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, geminiKey, probeClaude, setClaudeKey, setGeminiKey } from './claude.js?v=71'
-import { esc, icon, logo } from './html.js?v=71'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=71'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=71'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=71'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=72'
+import { aiName, askClaude, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, geminiKey, probeClaude, setClaudeKey, setGeminiKey } from './claude.js?v=72'
+import { esc, icon, logo } from './html.js?v=72'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=72'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=72'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=72'
 
 const store = createStore()
 const NAV = [
@@ -38,6 +38,7 @@ let hoursInputTimer = 0
 let rendering = false
 let chatBusy = ''
 let aiLive = false
+let planRun = 0
 let drawer = false
 let pendingAsk = ''
 let slotDay = 0
@@ -577,34 +578,67 @@ function rebuildAi() {
   queueSuggest()
 }
 
+// Asks Gemini/Claude to split the output requirement into tasks. Resolves to null
+// when no key is set, so the built-in estimator in model.js is used instead.
+async function fetchAiPlan(signal) {
+  if (!claudeReady(aiLive)) return null
+  const fresh = store.snapshot()
+  const course = fresh.courses.find((item) => item.id === ai.courseId)
+  const picked = fresh.documents.filter((doc) => (ai.docIds || []).includes(doc.id)).slice(0, 4)
+  const docs = (await Promise.all(picked.map(readCorpusItem)))
+    .filter((doc) => String(doc.text || '').trim())
+    .map((doc) => ({ name: doc.name, text: doc.text.slice(0, 5000) }))
+  const from = Math.max(Date.now(), isoOf(ai.start) ? atTime(ai.start, '00:00') : Date.now())
+  const until = atTime(ai.date, parseTime(ai.time) || '23:59')
+  const open = until > from ? openHours(fresh, from, until, ai.planId || '', until) : 0
+  return askPlan({
+    course: course?.name || '',
+    planName: ai.name || '',
+    window: `từ ${showDate(ai.start || dateISO(Date.now()))} đến ${parseTime(ai.time) || '23:59'} ngày ${showDate(ai.date)}`,
+    openHours: open ? formatHours(open) : '',
+    output: ai.output || '',
+    docs,
+  }, signal)
+}
+
 function queueSuggest() {
+  const run = ++planRun
+  const useAi = claudeReady(aiLive)
   ai.step = 2
   ai.chars = 120
+  ai.waitLabel = useAi ? `${aiName()} đang đọc yêu cầu đầu ra và chia nhiệm vụ…` : 'AI đang viết kế hoạch…'
   render()
   window.clearInterval(aiTimer)
   aiTimer = window.setInterval(() => {
     if (!ai || ai.step !== 2) { window.clearInterval(aiTimer); return }
     ai.chars += 90
     const node = document.querySelector('.center-card p')
-    if (node) node.textContent = `AI đang viết kế hoạch… (${ai.chars} ký tự)`
+    if (node) node.textContent = useAi ? ai.waitLabel : `${ai.waitLabel} (${ai.chars} ký tự)`
   }, 90)
-  window.setTimeout(() => {
-    if (!ai || ai.step !== 2) return
+  const stop = new AbortController()
+  const timer = window.setTimeout(() => stop.abort(), 50000)
+  const minWait = new Promise((resolve) => { window.setTimeout(resolve, 1100) })
+  const aiPlan = fetchAiPlan(stop.signal).catch(() => ({ ok: false, text: 'AI chưa chia được nhiệm vụ.' }))
+  Promise.all([aiPlan, minWait]).then(([plan]) => {
+    window.clearTimeout(timer)
+    if (!ai || ai.step !== 2 || run !== planRun) return
     window.clearInterval(aiTimer)
     const fresh = store.snapshot()
     const course = fresh.courses.find((item) => item.id === ai.courseId)
     const docs = fresh.documents.filter((doc) => (ai.docIds || []).includes(doc.id))
     const deadline = atTime(ai.date, parseTime(ai.time) || '23:59')
-    const made = suggestPlan({ course, output: ai.output, docs, deadline, start: atTime(ai.start || dateISO(Date.now()), '08:00'), data: fresh, ignorePlanId: ai.planId })
+    const aiGroups = plan?.ok ? plan.groups : null
+    const made = suggestPlan({ course, output: ai.output, docs, deadline, start: atTime(ai.start || dateISO(Date.now()), '08:00'), data: fresh, ignorePlanId: ai.planId, aiGroups })
     ai.tasks = made.tasks
-    ai.comment = made.comment
+    ai.comment = plan?.ok && plan.note ? `${plan.provider}: ${plan.note} ${made.comment}` : made.comment
     ai.deadline = deadline
     ai.displaced = made.displaced || 0
     ai.step = 3
     const fixed = autoResolveAi()
     render()
+    if (plan && !plan.ok) toast(`${plan.text} Đã dùng cách chia nhiệm vụ mặc định.`)
     if (fixed) toast(`AI đã tự chuyển ${fixed} nhiệm vụ bị trùng lịch sang khung trống gần nhất.`)
-  }, 1100)
+  })
 }
 
 function confirmAi() {

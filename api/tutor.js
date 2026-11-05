@@ -299,6 +299,125 @@ async function askAnthropic(apiKey, payload) {
   return { ok: false, status: lastStatus, text: lastError || 'Không gọi được Claude. Thử lại hoặc kiểm tra khóa API.' }
 }
 
+// ---------- Plan mode: AI reads the output requirement and splits it into tasks ----------
+
+function planPrompt() {
+  return `Bạn là trợ lý lập kế hoạch học tập cho sinh viên Việt Nam. Đọc yêu cầu đầu ra của môn và tài liệu (nếu có), rồi chia thành các nhiệm vụ cụ thể để sinh viên làm dần đến hạn.
+
+Quy tắc:
+- Bám sát đề: giữ đúng các phần/mục mà yêu cầu nêu (nếu đề đánh số phần thì mỗi phần là một nhóm). Không bịa thêm phần đề không yêu cầu.
+- Mỗi nhóm có "title" (tên phần) và "items" là các nhiệm vụ nhỏ theo thứ tự làm.
+- Mỗi nhiệm vụ: "name" ngắn gọn, bắt đầu bằng động từ, tối đa 70 ký tự; "detail" 1–2 câu nói rõ cần làm gì, sản phẩm là gì; "hours" là số giờ thực tế cho sinh viên, bội số của 0.5, từ 0.5 đến 6.
+- Việc nhẹ (đọc lại, kiểm tra, nộp bài) 0.5–1 giờ; viết/phân tích 1.5–3 giờ; lập trình, sơ đồ phức tạp, báo cáo dài 2–6 giờ.
+- Nên có nhiệm vụ đầu là đọc đề/tài liệu, lập dàn ý; nhiệm vụ cuối là rà soát và nộp bài.
+- Nếu có "Giờ rảnh còn lại", cố giữ tổng giờ không vượt quá con số đó, trừ khi đề thật sự cần nhiều hơn.
+- Viết tiếng Việt. Chỉ trả về JSON đúng dạng:
+{"groups":[{"title":"...","items":[{"name":"...","detail":"...","hours":1.5}]}],"note":"một câu nhận xét ngắn về khối lượng"}`
+}
+
+function planText(body) {
+  const parts = []
+  if (body.course) parts.push(`Môn: ${body.course}`)
+  if (body.planName) parts.push(`Tên kế hoạch: ${body.planName}`)
+  if (body.window) parts.push(`Thời gian: ${body.window}`)
+  if (body.openHours) parts.push(`Giờ rảnh còn lại đến hạn: ${body.openHours} giờ`)
+  parts.push(`Yêu cầu đầu ra:\n${clip(body.output, 6000)}`)
+  const docs = Array.isArray(body.docs) ? body.docs.slice(0, 4) : []
+  for (const doc of docs) {
+    if (String(doc.text || '').trim()) parts.push(`--- Tài liệu: ${doc.name || 'tệp'} ---\n${clip(doc.text, 5000)}`)
+  }
+  return parts.join('\n\n')
+}
+
+function parsePlan(raw) {
+  let text = String(raw || '').trim()
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fence) text = fence[1]
+  const from = text.indexOf('{')
+  const to = text.lastIndexOf('}')
+  if (from < 0 || to <= from) return null
+  let json
+  try { json = JSON.parse(text.slice(from, to + 1)) } catch { return null }
+  const half = (value) => Math.min(6, Math.max(0.5, Math.round((Number(value) || 1) * 2) / 2))
+  const groups = (Array.isArray(json.groups) ? json.groups : []).slice(0, 12).map((group) => ({
+    title: String(group.title || '').trim().slice(0, 90),
+    items: (Array.isArray(group.items) ? group.items : []).slice(0, 12)
+      .map((item) => ({
+        name: String(item.name || '').trim().slice(0, 90),
+        detail: String(item.detail || '').trim().slice(0, 400),
+        hours: half(item.hours),
+      }))
+      .filter((item) => item.name),
+  })).filter((group) => group.items.length)
+  if (!groups.length) return null
+  return { groups, note: String(json.note || '').trim().slice(0, 300) }
+}
+
+async function planWithGemini(apiKey, body) {
+  let lastError = ''
+  let lastStatus = 502
+  for (const model of GEMINI_MODELS) {
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: 'POST',
+        headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: planPrompt() }] },
+          contents: [{ role: 'user', parts: [{ text: planText(body) }] }],
+          generationConfig: { maxOutputTokens: 8192, responseMimeType: 'application/json', temperature: 0.4 },
+        }),
+      })
+      const json = await response.json().catch(() => ({}))
+      if (response.ok) {
+        const plan = parsePlan(geminiReply(json).text)
+        if (plan) return { ok: true, ...plan, provider: 'gemini' }
+        lastError = 'Gemini trả về kế hoạch không đúng định dạng.'
+        continue
+      }
+      lastStatus = response.status
+      lastError = geminiError(response.status, json)
+      if (response.status === 401 || response.status === 403 || /không hợp lệ/.test(lastError)) break
+    } catch (error) {
+      lastError = error.message || 'network'
+    }
+  }
+  return { ok: false, status: lastStatus, text: lastError || 'Không gọi được Gemini.' }
+}
+
+async function planWithClaude(apiKey, body) {
+  let lastError = ''
+  let lastStatus = 502
+  for (const model of MODELS) {
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          max_tokens: 4096,
+          system: planPrompt(),
+          messages: [{ role: 'user', content: planText(body) }],
+        }),
+      })
+      const json = await response.json().catch(() => ({}))
+      if (response.ok) {
+        const plan = parsePlan(extractReply(json.content).text)
+        if (plan) return { ok: true, ...plan, provider: 'claude' }
+        lastError = 'Claude trả về kế hoạch không đúng định dạng.'
+        continue
+      }
+      lastStatus = response.status
+      const code = errorOf(response.status, json)
+      if (code === 'model') continue
+      lastError = code
+      break
+    } catch (error) {
+      lastError = error.message || 'network'
+    }
+  }
+  return { ok: false, status: lastStatus, text: lastError || 'Không gọi được Claude.' }
+}
+
 module.exports = async function handler(req, res) {
   cors(res)
   if (req.method === 'OPTIONS') return res.status(204).end()
@@ -317,6 +436,21 @@ module.exports = async function handler(req, res) {
   }
 
   const payload = req.body && typeof req.body === 'object' ? req.body : {}
+  if (payload.mode === 'plan') {
+    if (!String(payload.output || '').trim()) return res.status(400).json({ error: 'missing', text: 'Thiếu yêu cầu đầu ra.' })
+    let planFail = null
+    if (geminiKey) {
+      const plan = await planWithGemini(geminiKey, payload)
+      if (plan.ok) return res.status(200).json(plan)
+      planFail = plan
+    }
+    if (claudeKey) {
+      const plan = await planWithClaude(claudeKey, payload)
+      if (plan.ok) return res.status(200).json(plan)
+      planFail = planFail || plan
+    }
+    return res.status(planFail.status >= 400 ? planFail.status : 502).json({ error: 'plan', text: planFail.text })
+  }
   if (!String(payload.question || '').trim()) {
     return res.status(400).json({ error: 'missing', text: 'Thiếu câu hỏi.' })
   }

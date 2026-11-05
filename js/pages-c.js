@@ -2,9 +2,9 @@ import {
   DAY, WEEKDAYS, atTime, clock, dateISO, formatAgo, formatBytes, formatDM, formatDMY, formatHours, formatMonthTitle,
   formatSession, formatSpokenDate, formatSpan, formatWhen, sameDay, startOfDay, weekdayLabel, weekRange,
 } from './format.js'
-import { SNOOZE_LIMIT, STATUS, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=71'
-import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=71'
-import { aiName, claudeKey, geminiKey } from './claude.js?v=71'
+import { SNOOZE_LIMIT, STATUS, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=72'
+import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=72'
+import { aiName, claudeKey, geminiKey } from './claude.js?v=72'
 
 const HOUR = 64
 const START_H = 6

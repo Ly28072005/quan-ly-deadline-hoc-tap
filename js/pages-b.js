@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, parseStamp, showDate, showStamp } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=71'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=71'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=72'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=72'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -121,7 +121,7 @@ export function renderAi(ctx) {
     return {
       title: 'Tạo kế hoạch bằng AI',
       back: '#/ke-hoach',
-      html: `<section class="card pad center-card"><span class="spin"></span><h2>AI đang chia nhiệm vụ</h2><p>AI đang viết kế hoạch… (${ai.chars || 0} ký tự)</p><button class="btn btn-ghost" type="button" data-act="ai-stop">${icon('stop', 14)} Dừng</button></section>`,
+      html: `<section class="card pad center-card"><span class="spin"></span><h2>AI đang chia nhiệm vụ</h2><p>${esc(ai.waitLabel || 'AI đang viết kế hoạch…')}</p><button class="btn btn-ghost" type="button" data-act="ai-stop">${icon('stop', 14)} Dừng</button></section>`,
     }
   }
   if (ai.step === 3) return aiReview(ctx)

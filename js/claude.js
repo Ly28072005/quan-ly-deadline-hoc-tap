@@ -148,3 +148,28 @@ export async function askClaude(payload) {
     provider: json.provider === 'gemini' ? 'Gemini' : 'Claude',
   }
 }
+
+// Ask the AI to split an output requirement into task groups. Returns null on any failure
+// so the caller can fall back to the built-in estimator.
+export async function askPlan(payload, signal) {
+  const headers = { 'content-type': 'application/json' }
+  const key = claudeKey()
+  if (key) headers['x-anthropic-key'] = key
+  const gemini = geminiKey()
+  if (gemini) headers['x-gemini-key'] = gemini
+  try {
+    const res = await fetch(tutorUrl(), {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ ...payload, mode: 'plan' }),
+      signal,
+    })
+    const json = await res.json().catch(() => ({}))
+    if (!res.ok || !Array.isArray(json.groups) || !json.groups.length) {
+      return { ok: false, text: json.text || 'AI chưa chia được nhiệm vụ.' }
+    }
+    return { ok: true, groups: json.groups, note: json.note || '', provider: json.provider === 'gemini' ? 'Gemini' : 'Claude' }
+  } catch (error) {
+    return { ok: false, text: error?.name === 'AbortError' ? 'AI trả lời quá lâu.' : 'Mất kết nối tới AI.' }
+  }
+}
