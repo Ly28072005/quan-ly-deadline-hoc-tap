@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, parseStamp, showDate, showStamp } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=79'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=79'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=80'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=80'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -193,7 +193,7 @@ function aiReview(ctx) {
           <div class="tr head"><span>#</span><span>Nhiệm vụ</span><span>Cần (giờ)</span><span>Ngày</span><span>Bắt đầu</span><span>Kết thúc</span><span></span></div>
           ${reviewRows(ai.tasks, { ...ctx, planShort: load.short, warnMap: new Map(review.rows.map((row) => [row.task.id, row.warnings])) })}
         </div>
-        <button class="btn btn-ghost" type="button" data-act="ai-add">+ Thêm nhiệm vụ</button>
+        <button class="btn add-row" type="button" data-act="ai-add">+ Thêm nhiệm vụ</button>
       </section>`,
   }
 }

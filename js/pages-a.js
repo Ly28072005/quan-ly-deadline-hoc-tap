@@ -1,6 +1,6 @@
 import { WEEKDAYS, clock, dateISO, formatAgo, formatBytes, formatDMY, formatHours, formatISO, formatSpan, formatSpokenDate, formatWhen, showDate, weekdayLabel } from './format.js'
-import { classOverlaps, completionTrend, courseWindowWarnings, leafTasks, parseOutput, sentenceCase, taskHours, taskStatus } from './model.js?v=79'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, logo, opts, pill, progress, swatch, wrapDate } from './html.js?v=79'
+import { classOverlaps, completionTrend, courseWindowWarnings, leafTasks, parseOutput, sentenceCase, taskHours, taskStatus } from './model.js?v=80'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, logo, opts, pill, progress, swatch, wrapDate } from './html.js?v=80'
 
 export function renderAuth(mode, auth, reset) {
   const hero = `<aside class="hero">
@@ -321,12 +321,10 @@ export function renderCourseForm(ctx) {
         <p>Màu hiển thị</p>
         <div class="color-row">
           <label class="color-wheel" title="Chọn màu tùy chỉnh"><input type="color" value="${esc(swatch(form.color))}" data-act="pick-custom" aria-label="Chọn màu tùy chỉnh"><span class="color-wheel-plus" aria-hidden="true">${icon('plus', 14)}</span></label>
-          <span class="color-now"><i style="--accent:${accent(form.color)}"></i><span class="num">${esc(swatch(form.color).toUpperCase())}</span></span>
         </div>
       </section>
       <section class="card pad">
         <div class="block-head"><h2>Lịch học cố định trên trường</h2><button class="btn btn-ghost" type="button" data-act="add-sch">+ Thêm buổi</button></div>
-        <p class="fine">Cùng thứ, cùng giờ thì chọn <strong>Cách tuần</strong>: hệ thống tự xếp lệch tuần (tuần này UX/UI, tuần sau BA). Trùng lịch hàng tuần hoặc một buổi mới bị chặn.</p>
         ${(form.schedule || []).map((row, index) => `<div class="slot-form">
           <select class="select" data-field="sch-day" data-id="${index}">${opts(WEEKDAYS.map((day) => [day.id, day.short]), row.weekday)}</select>
           <input class="input" type="time" data-field="sch-start" data-id="${index}" value="${esc(row.start || '07:00')}">
