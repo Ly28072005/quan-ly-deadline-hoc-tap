@@ -3,7 +3,7 @@
   formatISO, formatSpan, formatWhen, isoOf, minutes, pad, parseDate, roundUp30, startOfDay, uid, weekdayMon,
 } from './format.js'
 import { composeTutor } from './tutor.js'
-import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=76'
+import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=77'
 
 export { estimateWorkload, roundHalf }
 
@@ -37,18 +37,29 @@ export const SNOOZE_LIMIT = 3
 export function defaultSettings() {
   return {
     deadlineOn: true, scheduleOn: true, warningOn: true,
-    deadlineDays: [7, 3, 1], snoozeMinutes: 15, frequency: 'instant', push: false,
+    deadlineDays: [7, 3, 1], snoozeMinutes: 15, frequency: 'instant', batchHours: [9, 13, 17], push: false,
     aiAck: false,
   }
 }
 
-export function nextBatch(now) {
+// Hours the user may pick for "Gom theo khung giờ".
+export const BATCH_HOURS = [7, 9, 12, 13, 17, 20]
+
+export function batchHoursOf(settings) {
+  const raw = Array.isArray(settings?.batchHours) ? settings.batchHours.map(Number) : []
+  const hours = BATCH_HOURS.filter((hour) => raw.includes(hour))
+  return hours.length ? hours : [9, 13, 17]
+}
+
+// Next chosen slot at or after `now` (today, else the first slot tomorrow).
+export function nextBatch(now, hours = [9, 13, 17]) {
   const date = new Date(now)
-  for (const hour of [9, 13, 17]) {
+  const list = [...hours].sort((a, b) => a - b)
+  for (const hour of list) {
     const at = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hour, 0, 0, 0)
     if (at.getTime() >= now) return at.getTime()
   }
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, 9, 0, 0, 0).getTime()
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1, list[0], 0, 0, 0).getTime()
 }
 
 export function noticeDue(notice, now) {
@@ -1656,7 +1667,7 @@ function span(item) {
 
 export function desiredNotices(data, now) {
   const settings = { ...defaultSettings(), ...data.settings }
-  const batchAt = settings.frequency === 'batch' ? nextBatch(now) : now
+  const batchAt = settings.frequency === 'batch' ? nextBatch(now, batchHoursOf(settings)) : now
   const soonUntil = now + SOON_MINUTES * 60000
   const view = buildView({ ...data, notices: [] }, now)
   const today = dateISO(now)
@@ -1700,15 +1711,18 @@ export function desiredNotices(data, now) {
   }
 
   if (settings.scheduleOn) {
-    const classes = view.today.filter((item) => item.kind === 'class')
-    if (classes.length) {
+    // The day before: tomorrow's classes. 30 minutes before: the class about to start.
+    const tomorrow = startOfDay(now) + DAY
+    const next = classIntervals(data.courses, tomorrow, tomorrow + DAY).sort((a, b) => a.start - b.start)
+    if (next.length) {
       list.push({
-        key: `class:${today}`, type: 'schedule',
-        title: `Hôm nay có ${classes.length} buổi học trên lớp`,
-        body: classes.map((item) => `• ${span(item)} ${item.name}${item.room ? ` · ${item.room}` : ''}`).join('\n'),
-        planId: '', taskId: '', courseId: classes.length === 1 ? classes[0].courseId : '', deliverAt: batchAt,
+        key: `classnext:${dateISO(tomorrow)}`, type: 'schedule',
+        title: `Ngày mai (${WEEKDAYS.find((day) => day.id === weekdayMon(new Date(tomorrow)))?.short || ''} ${formatDMY(tomorrow)}) có ${next.length} buổi học trên lớp`,
+        body: next.map((item) => `• ${span(item)} ${item.name}${item.room ? ` · ${item.room}` : ''}`).join('\n'),
+        planId: '', taskId: '', courseId: next.length === 1 ? next[0].courseId : '', deliverAt: batchAt,
       })
     }
+    const classes = view.today.filter((item) => item.kind === 'class')
     for (const item of classes) {
       if (item.start <= now || item.start > soonUntil) continue
       const mins = Math.max(1, Math.round((item.start - now) / 60000))

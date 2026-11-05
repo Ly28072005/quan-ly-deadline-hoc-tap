@@ -1,6 +1,6 @@
 import {
   alignPlansToOutput, createDemo, defaultSettings, desiredNotices, emptyData, fileType, mergeNotices, SNOOZE_LIMIT, unreadCount, welcomeMessage,
-} from './model.js?v=76'
+} from './model.js?v=77'
 import { atTime, isoOf, uid } from './format.js'
 
 const ACCOUNTS = 'sf-accounts-v1'
@@ -358,6 +358,7 @@ export function createStore() {
       const notice = data.notices.find((item) => item.id === id)
       const now = Date.now()
       if (!notice) return { ok: false, reason: 'missing' }
+      if (notice.type === 'schedule') return { ok: false, reason: 'schedule' }
       if (notice.snoozeUntil > now) return { ok: false, reason: 'wait', until: notice.snoozeUntil }
       if ((notice.snoozeCount || 0) >= SNOOZE_LIMIT) return { ok: false, reason: 'limit' }
       notice.snoozeCount = (notice.snoozeCount || 0) + 1

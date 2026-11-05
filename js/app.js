@@ -2,15 +2,15 @@ import { createStore } from './store.js'
 import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
-  deadlineMilestones, noticeDue,
-} from './model.js?v=76'
+  batchHoursOf, deadlineMilestones, noticeDue,
+} from './model.js?v=77'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=76'
-import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=76'
-import { esc, icon, logo } from './html.js?v=76'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=76'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=76'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=76'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=77'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=77'
+import { esc, icon, logo } from './html.js?v=77'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=77'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=77'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=77'
 
 const store = createStore()
 const NAV = [
@@ -1051,6 +1051,16 @@ function onClick(event) {
     store.setSettings({ deadlineDays: next })
     render()
     toast(next.length ? 'Đã lưu mốc nhắc hạn' : 'Đã tắt nhắc kế hoạch sắp đến hạn')
+  }
+  if (act === 'toggle-hour') {
+    // "Gom theo khung giờ": any set of hours, but never none.
+    const hour = Number(node.dataset.value)
+    const hours = batchHoursOf(store.settings())
+    const next = hours.includes(hour) ? hours.filter((item) => item !== hour) : [...hours, hour]
+    if (!next.length) { toast('Cần giữ ít nhất 1 khung giờ'); return }
+    store.setSettings({ batchHours: next.sort((a, b) => a - b) })
+    render()
+    toast('Đã lưu khung giờ nhận')
   }
 }
 

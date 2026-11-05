@@ -2,9 +2,9 @@ import {
   DAY, WEEKDAYS, atTime, clock, dateISO, formatAgo, formatBytes, formatDM, formatDMY, formatHours, formatMonthTitle,
   formatSession, formatSpokenDate, formatSpan, formatWhen, sameDay, startOfDay, weekdayLabel, weekRange,
 } from './format.js'
-import { DEADLINE_MILESTONES, SNOOZE_LIMIT, SOON_MINUTES, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=76'
-import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=76'
-import { geminiKey } from './claude.js?v=76'
+import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, SNOOZE_LIMIT, SOON_MINUTES, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=77'
+import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=77'
+import { geminiKey } from './claude.js?v=77'
 
 const HOUR = 64
 const START_H = 6
@@ -344,6 +344,7 @@ export function renderNotice(ctx) {
 export function renderSettings(ctx) {
   const s = ctx.data.settings
   const marks = deadlineMilestones(s)
+  const hours = batchHoursOf(s)
   const chip =(key, value, label) => `<button type="button" class="${String(s[key]) === String(value) ? 'on' : ''}" data-act="set-pref" data-key="${key}" data-value="${value}">${label}</button>`
   return {
     title: 'Cài đặt thông báo',
@@ -351,7 +352,7 @@ export function renderSettings(ctx) {
     html: `<div class="narrow stack">
       <section class="card pad"><h2>Loại thông báo</h2>
         ${toggle('deadlineOn', 'Nhắc deadline', `Mỗi ngày: hôm nay có những nhiệm vụ nào, mấy giờ. Trước giờ làm ${SOON_MINUTES} phút: nhiệm vụ sắp đến giờ. Kế hoạch sắp đến hạn nộp theo các mốc bên dưới.`, s)}
-        ${toggle('scheduleOn', 'Nhắc lịch học', `Mỗi ngày: hôm nay có những buổi học trên lớp nào, mấy giờ, phòng nào. Trước giờ vào học ${SOON_MINUTES} phút: nhắc sắp vào học.`, s)}
+        ${toggle('scheduleOn', 'Nhắc lịch học', `Trước 1 ngày: ngày mai có những buổi học trên lớp nào, mấy giờ, phòng nào. Trước giờ vào học ${SOON_MINUTES} phút: nhắc sắp vào học. Nhắc lịch học không hoãn được.`, s)}
         ${toggle('warningOn', 'Cảnh báo kế hoạch', 'Kế hoạch đã quá hạn nộp, nhiệm vụ đã qua giờ mà chưa xong, môn đang học nhưng chưa có kế hoạch. Tự biến mất khi bạn xử lý xong.', s)}
       </section>
       <section class="card pad"><h2>Thời điểm và tần suất</h2>
@@ -359,9 +360,12 @@ export function renderSettings(ctx) {
         <div class="chip-choice">${DEADLINE_MILESTONES.slice().reverse().map((day) => `<button type="button" class="${marks.includes(day) ? 'on' : ''}" data-act="toggle-mark" data-value="${day}" aria-pressed="${marks.includes(day)}">${day} ngày</button>`).join('')}</div>
         <p class="fine">${marks.length ? `Chọn được nhiều mốc. Mỗi mốc nhắc một lần: ${marks.map((day) => `còn ${day} ngày`).join(', ')} trước hạn nộp của mỗi kế hoạch.` : 'Đang tắt: không nhắc kế hoạch sắp đến hạn. Bấm một mốc để bật lại.'}</p>
         <p>Thời gian hoãn nhắc</p><div class="chip-choice">${chip('snoozeMinutes', 5, '5 phút')}${chip('snoozeMinutes', 10, '10 phút')}${chip('snoozeMinutes', 15, '15 phút')}${chip('snoozeMinutes', 30, '30 phút')}${chip('snoozeMinutes', 60, '1 giờ')}</div>
-        <p class="fine">Bấm "Hoãn" ở một thông báo thì nó tạm ẩn rồi hiện lại sau khoảng này. Mỗi thông báo hoãn được ${SNOOZE_LIMIT} lần.</p>
-        <p>Tần suất nhận</p><div class="chip-choice">${chip('frequency', 'instant', 'Ngay khi có')}${chip('frequency', 'batch', 'Gom lúc 9:00, 13:00, 17:00')}</div>
-        <p class="fine">${s.frequency === 'batch' ? `Thông báo được giữ lại và hiện cùng lúc vào 9:00, 13:00, 17:00. Riêng nhắc "sắp đến giờ" (trước ${SOON_MINUTES} phút) vẫn hiện ngay.` : 'Có việc cần nhắc là hiện ngay. App tự kiểm tra mỗi phút khi đang mở.'}</p>
+        <p class="fine">Bấm "Hoãn" ở một thông báo thì nó tạm ẩn rồi hiện lại sau khoảng này. Mỗi thông báo hoãn được ${SNOOZE_LIMIT} lần. Không áp dụng cho nhắc lịch học.</p>
+        <p>Tần suất nhận</p><div class="chip-choice">${chip('frequency', 'instant', 'Ngay khi có')}${chip('frequency', 'batch', 'Gom theo khung giờ')}</div>
+        ${s.frequency === 'batch' ? `<p>Khung giờ nhận</p>
+        <div class="chip-choice">${BATCH_HOURS.map((hour) => `<button type="button" class="${hours.includes(hour) ? 'on' : ''}" data-act="toggle-hour" data-value="${hour}" aria-pressed="${hours.includes(hour)}">${hour}:00</button>`).join('')}</div>
+        <p class="fine">Thông báo được giữ lại và hiện cùng lúc vào ${hours.map((hour) => `${hour}:00`).join(', ')}. Chọn được nhiều khung, ít nhất 1. Riêng nhắc "sắp đến giờ" (trước ${SOON_MINUTES} phút) vẫn hiện ngay.</p>`
+    : '<p class="fine">Có việc cần nhắc là thông báo hiện ra ngay lúc đó, không chờ. App tự kiểm tra mỗi phút khi đang mở.</p>'}
       </section>
       <section class="card pad"><h2>Thiết bị</h2>${toggle('push', 'Nhắc trên điện thoại', '', s)}</section>
       <section class="card pad stack"><h2>Trợ lý AI</h2>
@@ -385,6 +389,8 @@ function noticeWhen(notice, now) {
   return formatAgo(notice.createdAt, now)
 }
 function snoozeControls(notice, ctx) {
+  // Class reminders are not snoozed: they fire the day before and 30 minutes before class.
+  if (notice.type === 'schedule') return ''
   const mins = ctx.data.settings.snoozeMinutes || 15
   const count = notice.snoozeCount || 0
   if (notice.snoozeUntil > ctx.now) {
