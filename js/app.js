@@ -3,14 +3,14 @@ import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
   batchHoursOf, deadlineMilestones, noticeDue,
-} from './model.js?v=85'
+} from './model.js?v=86'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=85'
-import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=85'
-import { esc, icon, logo } from './html.js?v=85'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=85'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=85'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=85'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=86'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=86'
+import { esc, icon, logo } from './html.js?v=86'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=86'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=86'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=86'
 
 const store = createStore()
 const NAV = [
@@ -41,6 +41,15 @@ let chatBusy = ''
 let aiLive = false
 let planRun = 0
 let drawer = false
+let aiHistory = null // null: current chat · 'list': past chats · '<id>': one past chat
+let freshAi = true // next time the assistant opens, start a new chat
+
+function closeAi() {
+  drawer = false
+  aiHistory = null
+  freshAi = true
+  render()
+}
 let pendingAsk = ''
 let slotDay = 0
 let toasts = []
@@ -244,6 +253,7 @@ function context() {
     source: data.settings.aiAck && aiReady(aiLive) ? 'gemini' : 'sim',
     aiOn: aiReady(aiLive),
     chatBusy,
+    aiHistory,
     taskBack,
   }
 }
@@ -769,6 +779,8 @@ function sendChat(scope, text) {
     store.pushTaskChat(taskId, { id: uid('m'), role: 'user', text: clean, at: now })
     chatBusy = taskId
   } else {
+    if (freshAi) { store.archiveAssistant(givenName(store.current()?.name)); freshAi = false }
+    aiHistory = null
     store.pushAssistant({ id: uid('m'), role: 'user', text: clean, at: now })
     chatBusy = 'ai'
     drawer = true
@@ -859,6 +871,12 @@ function geminiKeyField() {
 }
 
 function openAi(prefill) {
+  aiHistory = null
+  // Coming back after closing the assistant (or reloading) starts a new chat; the old one goes to history.
+  if (freshAi && !chatBusy) {
+    store.archiveAssistant(givenName(store.current()?.name))
+    freshAi = false
+  }
   if (!store.snapshot().settings.aiAck) {
     modal = {
       title: 'Cho phép trợ lý AI',
@@ -921,8 +939,18 @@ function onClick(event) {
   if (act === 'logout') { store.logout(); drawer = false; navigate('#/dang-nhap'); return }
   if (act === 'theme') toggleTheme()
   if (act === 'open-ai') openAi('')
-  if (act === 'close-ai') { drawer = false; render() }
-  if (act === 'clear-ai') { store.clearAssistant(givenName(store.current()?.name)); render() }
+  if (act === 'close-ai') closeAi()
+  if (act === 'clear-ai') { aiHistory = null; store.clearAssistant(givenName(store.current()?.name)); render(); toast('Đã mở phiên mới') }
+  if (act === 'ai-history') { aiHistory = aiHistory ? null : 'list'; render() }
+  if (act === 'ai-session') { aiHistory = node.dataset.id; render() }
+  if (act === 'ai-session-back') { aiHistory = 'list'; render() }
+  if (act === 'ai-session-resume') {
+    if (chatBusy) { toast('Đợi trợ lý trả lời xong rồi mở lại phiên cũ'); return }
+    store.restoreSession(node.dataset.id, givenName(store.current()?.name))
+    aiHistory = null
+    render()
+  }
+  if (act === 'ai-session-del') { store.deleteSession(node.dataset.id); aiHistory = 'list'; render(); toast('Đã xóa phiên') }
   if (act === 'ask-plan') {
     const plan = store.snapshot().plans.find((item) => item.id === node.dataset.id)
     openAi(`Đánh giá kế hoạch ${plan?.name || ''} giúp mình: tiến độ, nhiệm vụ nào có rủi ro và mình nên làm gì tiếp theo?`)
@@ -1601,7 +1629,7 @@ function onFocusOut(event) {
 
 function onKey(event) {
   if (event.key === 'Escape' && viewer) { closeViewer(); return }
-  if (event.key === 'Escape' && drawer) { drawer = false; render() }
+  if (event.key === 'Escape' && drawer) closeAi()
   const hoursField = event.target.closest?.('.hours-input')
   if (hoursField && ai) {
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {

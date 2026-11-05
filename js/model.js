@@ -3,7 +3,7 @@
   formatISO, formatSpan, formatWhen, isoOf, minutes, pad, parseDate, roundUp30, startOfDay, uid, weekdayMon,
 } from './format.js'
 import { composeTutor } from './tutor.js'
-import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=85'
+import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=86'
 
 export { estimateWorkload, roundHalf }
 
@@ -28,7 +28,7 @@ export const DIFFICULTY = [
 export function emptyData() {
   return {
     courses: [], documents: [], freeSlots: [], plans: [], notices: [],
-    assistant: [], taskChats: {}, settings: defaultSettings(),
+    assistant: [], assistantSessions: [], taskChats: {}, settings: defaultSettings(),
   }
 }
 

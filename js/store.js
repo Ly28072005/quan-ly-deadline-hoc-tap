@@ -1,6 +1,6 @@
 import {
   alignPlansToOutput, createDemo, defaultSettings, desiredNotices, emptyData, fileType, mergeNotices, SNOOZE_LIMIT, unreadCount, welcomeMessage,
-} from './model.js?v=85'
+} from './model.js?v=86'
 import { atTime, isoOf, uid } from './format.js'
 
 const ACCOUNTS = 'sf-accounts-v1'
@@ -41,6 +41,7 @@ function sanitize(raw) {
   data.plans = asArray(raw.plans)
   data.notices = asArray(raw.notices)
   data.assistant = asArray(raw.assistant)
+  data.assistantSessions = asArray(raw.assistantSessions)
   data.taskChats = raw.taskChats && typeof raw.taskChats === 'object' ? raw.taskChats : {}
   data.settings = { ...defaultSettings(), ...(raw.settings || {}) }
   if (data.settings.frequency === 'morning') data.settings.frequency = 'batch'
@@ -372,7 +373,37 @@ export function createStore() {
       writeData()
     },
     clearAssistant(name) {
+      this.archiveAssistant(name)
+    },
+    // Moves the current chat (if the user asked anything) into the history and starts a fresh one.
+    archiveAssistant(name) {
+      if (!Array.isArray(data.assistantSessions)) data.assistantSessions = []
+      const asked = data.assistant.filter((msg) => msg.role === 'user')
+      if (asked.length) {
+        data.assistantSessions.unshift({
+          id: `s${Date.now().toString(36)}`,
+          title: String(asked[0].text || 'Phiên trò chuyện').trim().slice(0, 80),
+          startedAt: asked[0].at || Date.now(),
+          endedAt: data.assistant[data.assistant.length - 1]?.at || Date.now(),
+          messages: data.assistant,
+        })
+        data.assistantSessions = data.assistantSessions.slice(0, 50)
+      }
       data.assistant = [welcomeMessage(name)]
+      writeData()
+    },
+    // Re-opens a past chat to continue it; the chat that was open goes into the history.
+    restoreSession(id, name) {
+      const session = (data.assistantSessions || []).find((item) => item.id === id)
+      if (!session) return false
+      data.assistantSessions = data.assistantSessions.filter((item) => item.id !== id)
+      this.archiveAssistant(name)
+      data.assistant = session.messages
+      writeData()
+      return true
+    },
+    deleteSession(id) {
+      data.assistantSessions = (data.assistantSessions || []).filter((item) => item.id !== id)
       writeData()
     },
     pushTaskChat(taskId, message) {

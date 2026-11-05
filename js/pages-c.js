@@ -2,9 +2,9 @@ import {
   DAY, WEEKDAYS, atTime, clock, dateISO, formatAgo, formatBytes, formatDM, formatDMY, formatHours, formatMonthTitle,
   formatSession, formatSpokenDate, formatSpan, formatWhen, sameDay, startOfDay, weekdayLabel, weekRange,
 } from './format.js'
-import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=85'
-import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=85'
-import { geminiKey } from './claude.js?v=85'
+import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=86'
+import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=86'
+import { geminiKey } from './claude.js?v=86'
 
 const HOUR = 64
 const START_H = 6
@@ -388,14 +388,32 @@ function toggle(key, title, text, settings) {
   return `<label class="switch-row"><span><strong>${title}</strong>${text ? `<span class="sub">${text}</span>` : ''}</span><input type="checkbox" data-act="set-pref" data-key="${key}" data-value="toggle" ${settings[key] ? 'checked' : ''}></label>`
 }
 
+// Past chats, newest first; one chat read-only with "continue" and "delete".
+function historyHtml(ctx) {
+  const sessions = ctx.data.assistantSessions || []
+  if (ctx.aiHistory !== 'list') {
+    const session = sessions.find((item) => item.id === ctx.aiHistory)
+    if (!session) return '<div class="msgs"><p class="muted">Không thấy phiên này.</p></div>'
+    return `<div class="history-bar"><button class="btn btn-ghost" type="button" data-act="ai-session-back">${icon('back', 16)} Lịch sử</button><span class="history-when">${formatDMY(session.startedAt)} ${clock(session.startedAt)}</span></div>
+      <div class="msgs">${session.messages.map((msg) => bubble(msg)).join('')}</div>
+      <div class="history-foot"><button class="btn btn-primary" type="button" data-act="ai-session-resume" data-id="${session.id}">Tiếp tục phiên này</button><button class="btn btn-ghost" type="button" data-act="ai-session-del" data-id="${session.id}">${icon('trash', 16)} Xóa</button></div>`
+  }
+  return `<div class="history-bar"><strong>Lịch sử trò chuyện</strong><span class="history-when">${sessions.length} phiên</span></div>
+    <div class="msgs history-list">${sessions.map((session) => {
+      const count = session.messages.filter((msg) => msg.role === 'user').length
+      return `<button type="button" class="history-item" data-act="ai-session" data-id="${session.id}"><strong>${esc(session.title)}</strong><span>${formatDMY(session.startedAt)} ${clock(session.startedAt)} · ${count} câu hỏi</span></button>`
+    }).join('') || '<p class="muted">Chưa có phiên nào. Khi bạn đóng trợ lý, cuộc trò chuyện được lưu ở đây.</p>'}</div>`
+}
+
 export function drawerHtml(ctx) {
   const messages = ctx.data.assistant || []
+  const history = !!ctx.aiHistory
   return `<div class="drawer-back" data-act="close-ai"></div>
     <aside class="drawer" role="dialog" aria-label="Trợ lý AI">
-      <header><span class="spark">${icon('sparkles', 18)}</span><div><strong>Trợ lý AI</strong></div><span class="source ${ctx.source === 'gemini' ? '' : 'sim'}">${ctx.source === 'gemini' ? 'Gemini' : 'Mô phỏng'}</span><button class="icon-btn" type="button" data-act="clear-ai" aria-label="Xóa hội thoại">${icon('refresh', 16)}</button><button class="icon-btn" type="button" data-act="close-ai" aria-label="Đóng">${icon('x', 18)}</button></header>
-      <div class="msgs">${messages.map((msg) => bubble(msg)).join('')}${ctx.chatBusy === 'ai' ? `<div class="bubble ai"><span class="dots"></span> Gemini đang đọc dữ liệu, tìm nguồn và soạn câu trả lời…</div>` : ''}</div>
+      <header><span class="spark">${icon('sparkles', 18)}</span><div><strong>Trợ lý AI</strong></div><span class="source ${ctx.source === 'gemini' ? '' : 'sim'}">${ctx.source === 'gemini' ? 'Gemini' : 'Mô phỏng'}</span><button class="icon-btn${history ? ' on' : ''}" type="button" data-act="ai-history" aria-label="Lịch sử trò chuyện" title="Lịch sử trò chuyện" aria-pressed="${history}">${icon('clock', 16)}</button><button class="icon-btn" type="button" data-act="clear-ai" aria-label="Phiên mới" title="Phiên mới">${icon('plus', 16)}</button><button class="icon-btn" type="button" data-act="close-ai" aria-label="Đóng">${icon('x', 18)}</button></header>
+      ${history ? historyHtml(ctx) : `<div class="msgs">${messages.map((msg) => bubble(msg)).join('')}${ctx.chatBusy === 'ai' ? `<div class="bubble ai"><span class="dots"></span> Gemini đang đọc dữ liệu, tìm nguồn và soạn câu trả lời…</div>` : ''}</div>
       <div class="chips">${['Tư vấn kế hoạch', 'Vấn đề bài tập', 'Quản lý thời gian', 'Theo dõi, điều chỉnh', 'Hướng dẫn sử dụng'].map((text) => `<button type="button" data-act="chip" data-scope="ai" data-text="${esc(text)}">${esc(text)}</button>`).join('')}</div>
-      <form class="composer" data-act="send" data-scope="ai"><textarea class="input" name="text" rows="2" placeholder="Hỏi trợ lý AI…"></textarea><button class="btn btn-primary icon-only" type="submit" aria-label="Gửi">${icon('send', 16)}</button></form>
+      <form class="composer" data-act="send" data-scope="ai"><textarea class="input" name="text" rows="2" placeholder="Hỏi trợ lý AI…"></textarea><button class="btn btn-primary icon-only" type="submit" aria-label="Gửi">${icon('send', 16)}</button></form>`}
     </aside>`
 }
 
