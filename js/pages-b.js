@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, showDate } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=81'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=81'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=82'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=82'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -151,12 +151,11 @@ export function renderAi(ctx) {
           ${field('Giờ kết thúc', timeBox('time', ai.time, !!e.time), e.time, true)}
         </div>
         ${field('Yêu cầu đầu ra của môn đã chọn', `<textarea class="input ${e.output ? 'bad' : ''}" name="output" rows="8" placeholder="Ví dụ: Viết báo cáo 15 trang và thiết kế 20 slide thuyết trình.">${esc(ai.output || '')}</textarea>`, e.output)}
-        <p class="fine">Mỗi phần được chia thành buổi 1–2 giờ. Mục nặng (báo cáo, persona, sơ đồ) nhận 2 giờ; mục vừa nhận 1 giờ. Các mục quá nhỏ trong cùng phần được gộp nếu không đủ 1 giờ/mục. Định mức: 45 phút/trang, 20 phút/slide, 30 phút/sơ đồ, 60–90 phút/chức năng.</p>
         ${full ? banner('bad', 'Không còn giờ rảnh', 'Các khung giờ rảnh đến hạn kế hoạch đã được xếp hết nhiệm vụ. Hãy bổ sung thời gian rảnh trước khi tạo kế hoạch.', `<a class="btn btn-primary" href="#/lich/ranh">Thêm giờ rảnh</a>`) : ''}
         ${e.free ? `<p class="err">${esc(e.free)} <a href="#/lich/ranh">Khai báo giờ rảnh</a></p>` : ''}
         ${e.schedule ? `<p class="err">${esc(e.schedule)}</p>` : ''}
         <p>Tài liệu cho AI tham khảo</p>
-        ${docs.map((doc) => `<label class="check"><input type="checkbox" name="doc" value="${doc.id}" ${(ai.docIds || []).includes(doc.id) ? 'checked' : ''}> ${esc(doc.name)}</label>`).join('') || '<p class="muted">Môn này chưa có tài liệu</p>'}
+        ${docs.map((doc) => `<label class="check"><input type="checkbox" name="doc" value="${doc.id}" ${(ai.docIds || []).includes(doc.id) ? 'checked' : ''}> ${esc(doc.name)}</label>`).join('') || '<p class="empty-note">Môn này chưa có tài liệu</p>'}
         ${ai.planId ? impactBanner(aiPlan(ctx), ctx, `<button class="btn btn-primary" type="button" data-act="ai-rebuild">${icon('sparkles', 16)} Tạo lại bằng AI</button>`) : ''}
         <div class="form-foot"><a class="btn btn-ghost" href="#/ke-hoach">Hủy</a><button class="btn btn-primary" type="submit" ${full ? 'disabled' : ''}>${icon('sparkles', 16)} Tạo gợi ý kế hoạch</button></div>
       </form>`,
