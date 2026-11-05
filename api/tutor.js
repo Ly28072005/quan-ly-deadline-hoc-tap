@@ -3,16 +3,18 @@
 
 const API = 'https://generativelanguage.googleapis.com/v1beta'
 
-// Tried in this order when the key can use them. Stable free-tier models first.
+// Used when Google's model list cannot be read. The "-latest" aliases always point at a current model.
 const PREFERRED = [
-  'gemini-2.5-flash',
   'gemini-flash-latest',
-  'gemini-2.0-flash',
-  'gemini-2.5-flash-lite',
   'gemini-flash-lite-latest',
-  'gemini-2.0-flash-lite',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
 ]
-const MAX_MODELS = 4
+const MAX_MODELS = 6
+const HEDGE_MS = 10000 // start the next model if this one is silent this long
+const TOTAL_BUDGET = 54000 // Vercel stops the function at 60 s
+// Model that last answered for a key, tried first next time (kept while the function stays warm).
+const lastGood = new Map()
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
@@ -158,11 +160,21 @@ async function modelsFor(apiKey) {
   } catch { /* fall back to the preferred list */ }
   let list = PREFERRED
   if (found && found.length) {
-    const extra = found
-      .filter((name) => /^gemini-.*flash/.test(name) && !/image|tts|audio|live|embedding|thinking/.test(name))
-      .filter((name) => !PREFERRED.includes(name))
-      .sort((a, b) => b.localeCompare(a))
-    list = [...PREFERRED.filter((name) => found.includes(name)), ...extra]
+    // Stable numbered flash models (gemini-3.8-flash, gemini-3.5-flash-lite…), newest first.
+    // Old ones such as gemini-2.5-flash may be listed but closed to new users, so they go last.
+    const numbered = found
+      .map((name) => ({ name, m: name.match(/^gemini-(\d+(?:\.\d+)?)-flash(-lite)?$/) }))
+      .filter((row) => row.m)
+      .map((row) => ({ name: row.name, version: Number(row.m[1]), lite: Boolean(row.m[2]) }))
+    const pick = (lite) => numbered.filter((row) => row.lite === lite).sort((a, b) => b.version - a.version).map((row) => row.name)
+    // Lite goes second: it is rarely overloaded, so an answer still comes fast when flash models are busy (503).
+    const ordered = [
+      'gemini-flash-latest',
+      'gemini-flash-lite-latest',
+      ...pick(false),
+      ...pick(true),
+    ]
+    list = [...new Set(ordered)].filter((name) => found.includes(name))
     if (!list.length) list = PREFERRED
   }
   const entry = { list: list.slice(0, MAX_MODELS), at: Date.now() }
@@ -170,43 +182,92 @@ async function modelsFor(apiKey) {
   return entry
 }
 
-async function generate(apiKey, model, body) {
+async function generate(apiKey, model, body, signal) {
   const response = await fetch(`${API}/models/${model}:generateContent`, {
     method: 'POST',
     headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
     body: JSON.stringify(body),
+    signal,
   })
   const json = await response.json().catch(() => ({}))
   return { ok: response.ok, status: response.status, json }
 }
 
-// Runs `build(useSearch)` across models until one answers. `read(json)` returns a result or null.
-async function runGemini(apiKey, { build, read, search }) {
+// One model attempt. Retries once without Google Search if the search tool itself is refused.
+async function attempt(apiKey, model, { build, read, search }, signal) {
+  for (const useSearch of search ? [true, false] : [false]) {
+    const result = await generate(apiKey, model, build(useSearch), signal)
+    if (result.ok) {
+      const value = read(result.json)
+      if (value) return { ok: true, ...value, model }
+      const blocked = result.json?.promptFeedback?.blockReason || result.json?.candidates?.[0]?.finishReason
+      return { ok: false, status: 502, text: blocked ? `Gemini không trả lời được câu này (${blocked}).` : 'Gemini trả về kết quả rỗng.' }
+    }
+    const failure = { ok: false, status: result.status, text: errorText(result.status, result.json), fatal: fatal(result.status, result.json) }
+    if (failure.fatal || !(useSearch && (result.status === 400 || result.status === 429))) return failure
+  }
+  return { ok: false, status: 502, text: 'Không gọi được Gemini.' }
+}
+
+// Tries models one after another. If a model is silent for HEDGE_MS, the next one starts in parallel
+// and the first good answer wins, so a busy Google model cannot eat Vercel's 60 s limit.
+async function runGemini(apiKey, job) {
+  const started = Date.now()
   const models = await modelsFor(apiKey)
   if (models.error) return { ok: false, status: models.status, text: models.error }
-  let lastError = ''
-  let lastStatus = 502
-  for (const model of models.list) {
-    for (const useSearch of search ? [true, false] : [false]) {
-      try {
-        const result = await generate(apiKey, model, build(useSearch))
-        if (result.ok) {
-          const value = read(result.json)
-          if (value) return { ok: true, ...value, model }
-          const blocked = result.json?.promptFeedback?.blockReason || result.json?.candidates?.[0]?.finishReason
-          lastError = blocked ? `Gemini không trả lời được câu này (${blocked}).` : 'Gemini trả về kết quả rỗng.'
-          continue
-        }
-        lastStatus = result.status
-        lastError = errorText(result.status, result.json)
-        if (fatal(result.status, result.json)) return { ok: false, status: result.status, text: lastError }
-        if (result.status === 404) break
-      } catch (error) {
-        lastError = `Không kết nối được Gemini: ${error.message || 'network'}`
-      }
+  const good = lastGood.get(apiKey)
+  const order = good && models.list.includes(good) ? [good, ...models.list.filter((name) => name !== good)] : models.list
+  return new Promise((resolve) => {
+    const controllers = []
+    let next = 0
+    let running = 0
+    let done = false
+    let last = { ok: false, status: 502, text: 'Không gọi được Gemini.' }
+    const finish = (result) => {
+      if (done) return
+      done = true
+      clearTimeout(budget)
+      controllers.forEach((ctl) => ctl.abort())
+      resolve(result)
     }
-  }
-  return { ok: false, status: lastStatus, text: lastError || 'Không gọi được Gemini.' }
+    const budget = setTimeout(() => finish({
+      ok: false,
+      status: 503,
+      text: last.text === 'Không gọi được Gemini.'
+        ? 'Gemini phản hồi quá chậm vì đang quá tải. Thử lại sau ít phút.'
+        : `${last.text}\n\nThử lại sau ít phút.`,
+    }), Math.max(1000, TOTAL_BUDGET - (Date.now() - started)))
+    const launch = () => {
+      if (done) return
+      if (next >= order.length) {
+        if (!running) finish(last)
+        return
+      }
+      const model = order[next++]
+      const ctl = new AbortController()
+      controllers.push(ctl)
+      running += 1
+      let hedged = false
+      const hedge = setTimeout(() => { hedged = true; launch() }, HEDGE_MS)
+      attempt(apiKey, model, job, ctl.signal)
+        .catch((error) => ({ ok: false, status: 502, text: `Không kết nối được Gemini: ${error.message || 'network'}`, aborted: error?.name === 'AbortError' }))
+        .then((result) => {
+          clearTimeout(hedge)
+          running -= 1
+          if (done) return
+          if (result.ok) {
+            lastGood.set(apiKey, model)
+            finish(result)
+            return
+          }
+          if (lastGood.get(apiKey) === model) lastGood.delete(apiKey)
+          if (!result.aborted) last = result
+          if (result.fatal) { finish(result); return }
+          if (!hedged || !running) launch()
+        })
+    }
+    launch()
+  })
 }
 
 function askChat(apiKey, payload) {
