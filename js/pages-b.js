@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, showDate } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=89'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=89'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=90'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=90'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -173,7 +173,8 @@ function aiReview(ctx) {
   }, ctx.now)
   // Free time still unused up to this plan's deadline once this draft is placed (classes and other plans excluded).
   const freeLeft = ai.deadline > ctx.now
-    ? openHours({ ...ctx.data, plans: [...ctx.data.plans.filter((plan) => plan.id !== ai.planId), ghost].filter(Boolean) }, ctx.now, ai.deadline, '', ai.deadline)
+    // displaceAfter = deadline + 1: plans due later will be moved, but this draft (due exactly then) still counts.
+    ? openHours({ ...ctx.data, plans: [...ctx.data.plans.filter((plan) => plan.id !== ai.planId), ghost].filter(Boolean) }, ctx.now, ai.deadline, '', ai.deadline + 1)
     : 0
   const locked = review.bad > 0
   const ok = review.tone === 'ok' && !load.short && !review.short
