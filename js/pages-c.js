@@ -2,9 +2,9 @@ import {
   DAY, WEEKDAYS, atTime, clock, dateISO, formatAgo, formatBytes, formatDM, formatDMY, formatHours, formatMonthTitle,
   formatSession, formatSpokenDate, formatSpan, formatWhen, sameDay, startOfDay, weekdayLabel, weekRange,
 } from './format.js'
-import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=88'
-import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=88'
-import { geminiKey } from './claude.js?v=88'
+import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=89'
+import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=89'
+import { geminiKey } from './claude.js?v=89'
 
 const HOUR = 64
 const START_H = 6
@@ -254,7 +254,6 @@ export function renderTask(ctx) {
         </section>
         <section class="card pad">
           <h2>Bài tập của nhiệm vụ</h2>
-          <p class="sub">Đẩy đề PDF, Word hoặc txt để trợ lý đọc chữ và giải. Ảnh vẫn lưu được; nên gõ thêm đề vào ô chat.</p>
           <label class="dropzone" data-drop="task"><input type="file" hidden multiple data-act="task-file" data-id="${found.id}" accept=".pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg,.webp"><strong>Đẩy bài tập lên</strong><span>PDF, Word, txt, markdown hoặc ảnh đề.</span></label>
           ${(found.files || []).map((file) => `<div class="list-row"><button class="doc-open" type="button" data-act="view-doc" data-id="${file.id}"><span class="doc-title">${icon(file.type === 'Ảnh' ? 'image' : 'file', 18)} <strong>${esc(file.name)}</strong></span><span class="sub">${formatBytes(file.size)} · ${formatAgo(file.updatedAt, ctx.now)} · Xem</span></button><button class="icon-btn" type="button" data-act="del-file" data-id="${found.id}" data-file="${file.id}" aria-label="Xóa">${icon('trash', 16)}</button></div>`).join('')}
         </section>
@@ -368,7 +367,6 @@ export function renderSettings(ctx) {
       </section>
       <section class="card pad"><h2>Thiết bị</h2>${toggle('push', 'Nhắc trên điện thoại', '', s)}</section>
       <section class="card pad stack"><h2>Trợ lý AI</h2>
-        <p class="sub">${ctx.aiOn ? `Đã kết nối Gemini. Trợ lý trả lời như ChatGPT/Gemini, đọc tài liệu môn và đề bạn đẩy lên, rồi tìm web khi cần.` : 'Dán khóa Gemini miễn phí để trợ lý trả lời và tìm nguồn trên web.'}</p>
         <form data-act="save-claude" class="stack">
           <label class="field"><span>Khóa Gemini (miễn phí)</span><input class="input" name="gemini" type="password" autocomplete="off" placeholder="AIza…" value="${esc(geminiKey())}"></label>
           <p class="fine">Lấy khóa: vào aistudio.google.com/apikey, đăng nhập Google, bấm Create API key rồi dán vào đây.</p>
