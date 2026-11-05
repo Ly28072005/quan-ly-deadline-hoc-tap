@@ -2,9 +2,9 @@ import {
   DAY, WEEKDAYS, atTime, clock, dateISO, formatAgo, formatBytes, formatDM, formatDMY, formatHours, formatMonthTitle,
   formatSession, formatSpokenDate, formatSpan, formatWhen, sameDay, startOfDay, weekdayLabel, weekRange,
 } from './format.js'
-import { SNOOZE_LIMIT, STATUS, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=72'
-import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=72'
-import { aiName, claudeKey, geminiKey } from './claude.js?v=72'
+import { SNOOZE_LIMIT, STATUS, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=73'
+import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=73'
+import { geminiKey } from './claude.js?v=73'
 
 const HOUR = 64
 const START_H = 6
@@ -220,8 +220,8 @@ export function renderTask(ctx) {
   const docs = ctx.data.documents.filter((doc) => doc.courseId === found.plan.courseId)
   const messages = ctx.data.taskChats[found.id] || []
   const greeting = docs.length
-    ? `Đẩy đề hoặc dán câu hỏi. ${aiName()} đọc ${docs.length} tài liệu môn ${found.plan.course?.name || 'này'} trước; nếu đề cần thêm kiến thức thì tìm nguồn trên web rồi giải đầy đủ.`
-    : `Đẩy đề hoặc dán câu hỏi. ${aiName()} giải bằng kiến thức và tìm web; tải slide/giáo trình để ưu tiên đúng tài liệu môn.`
+    ? `Đẩy đề hoặc dán câu hỏi. Gemini đọc ${docs.length} tài liệu môn ${found.plan.course?.name || 'này'} trước; nếu đề cần thêm kiến thức thì tìm nguồn trên web rồi giải đầy đủ.`
+    : `Đẩy đề hoặc dán câu hỏi. Gemini giải bằng kiến thức và tìm web; tải slide/giáo trình để ưu tiên đúng tài liệu môn.`
   return {
     title: found.name,
     crumb: `<a href="#/ke-hoach/${found.plan.id}">${esc(found.plan.name)}</a>`,
@@ -255,7 +255,7 @@ export function renderTask(ctx) {
           ${(found.files || []).map((file) => `<div class="list-row"><button class="doc-open" type="button" data-act="view-doc" data-id="${file.id}"><span class="doc-title">${icon(file.type === 'Ảnh' ? 'image' : 'file', 18)} <strong>${esc(file.name)}</strong></span><span class="sub">${formatBytes(file.size)} · ${formatAgo(file.updatedAt, ctx.now)} · Xem</span></button><button class="icon-btn" type="button" data-act="del-file" data-id="${found.id}" data-file="${file.id}" aria-label="Xóa">${icon('trash', 16)}</button></div>`).join('')}
         </section>
       </div>
-      ${chatBox('Trợ lý làm bài', `${aiName()} đọc tài liệu môn, đề bạn đẩy lên, và tìm web khi cần`, ctx.source, messages, greeting, ctx.chatBusy === found.id, [
+      ${chatBox('Trợ lý làm bài', `Gemini đọc tài liệu môn, đề bạn đẩy lên, và tìm web khi cần`, ctx.source, messages, greeting, ctx.chatBusy === found.id, [
         'Giải bài tập này', 'Giải thích yêu cầu bài tập', 'Gợi ý các bước làm', 'Nên đọc tài liệu nào?', 'Kiểm tra bài làm của mình',
       ], 'Dán đề hoặc hỏi cách làm…', 'task')}
     </div>`,
@@ -265,8 +265,8 @@ export function renderTask(ctx) {
 export function chatBox(title, sub, source, messages, greeting, busy, chips, placeholder, scope) {
   const list = messages.length ? messages : [{ role: 'ai', suggestion: greeting, from: '', actions: [] }]
   return `<aside class="chat-pane">
-    <header><span class="spark">${icon('sparkles', 18)}</span><div><strong>${title}</strong><span class="sub">${esc(sub)}</span></div><span class="source ${source === 'claude' ? '' : 'sim'}">${source === 'claude' ? esc(aiName()) : 'Mô phỏng'}</span></header>
-    <div class="msgs">${list.map((msg) => bubble(msg)).join('')}${busy ? `<div class="bubble ai"><span class="dots"></span> ${esc(aiName())} đang đọc đề, tìm nguồn và soạn câu trả lời…</div>` : ''}</div>
+    <header><span class="spark">${icon('sparkles', 18)}</span><div><strong>${title}</strong><span class="sub">${esc(sub)}</span></div><span class="source ${source === 'gemini' ? '' : 'sim'}">${source === 'gemini' ? 'Gemini' : 'Mô phỏng'}</span></header>
+    <div class="msgs">${list.map((msg) => bubble(msg)).join('')}${busy ? `<div class="bubble ai"><span class="dots"></span> Gemini đang đọc đề, tìm nguồn và soạn câu trả lời…</div>` : ''}</div>
     <div class="chips">${chips.map((text) => `<button type="button" data-act="chip" data-scope="${scope}" data-text="${esc(text)}">${esc(text)}</button>`).join('')}</div>
     <form class="composer" data-act="send" data-scope="${scope}"><textarea class="input" name="text" rows="2" placeholder="${esc(placeholder)}"></textarea><button class="btn btn-primary icon-only" type="submit" aria-label="Gửi">${icon('send', 16)}</button></form>
   </aside>`
@@ -361,13 +361,11 @@ export function renderSettings(ctx) {
       </section>
       <section class="card pad"><h2>Thiết bị</h2>${toggle('push', 'Nhắc trên điện thoại', '', s)}</section>
       <section class="card pad stack"><h2>Trợ lý AI</h2>
-        <p class="sub">${ctx.claudeOn ? `Đã kết nối ${esc(aiName())}. Trợ lý trả lời như ChatGPT/Gemini, đọc tài liệu môn và đề bạn đẩy lên, rồi tìm web khi cần.` : 'Dán khóa Gemini miễn phí để trợ lý trả lời và tìm nguồn trên web.'}</p>
+        <p class="sub">${ctx.aiOn ? `Đã kết nối Gemini. Trợ lý trả lời như ChatGPT/Gemini, đọc tài liệu môn và đề bạn đẩy lên, rồi tìm web khi cần.` : 'Dán khóa Gemini miễn phí để trợ lý trả lời và tìm nguồn trên web.'}</p>
         <form data-act="save-claude" class="stack">
           <label class="field"><span>Khóa Gemini (miễn phí)</span><input class="input" name="gemini" type="password" autocomplete="off" placeholder="AIza…" value="${esc(geminiKey())}"></label>
           <p class="fine">Lấy khóa: vào aistudio.google.com/apikey, đăng nhập Google, bấm Create API key rồi dán vào đây.</p>
-          <label class="field"><span>Khóa Anthropic (tùy chọn, trả phí)</span><input class="input" name="key" type="password" autocomplete="off" placeholder="sk-ant-…" value="${esc(claudeKey())}"></label>
-          <p class="fine">Nếu có cả hai, app hỏi Gemini trước; Gemini lỗi hoặc hết lượt thì chuyển sang Claude.</p>
-          <div class="form-foot"><button class="btn btn-primary" type="submit">Lưu khóa</button></div>
+          <div class="form-foot"><button class="btn btn-primary" type="submit">Lưu và kiểm tra khóa</button></div>
         </form>
       </section>
     </div>`,
@@ -402,8 +400,8 @@ export function drawerHtml(ctx) {
   const messages = ctx.data.assistant || []
   return `<div class="drawer-back" data-act="close-ai"></div>
     <aside class="drawer" role="dialog" aria-label="Trợ lý AI">
-      <header><span class="spark">${icon('sparkles', 18)}</span><div><strong>Trợ lý AI</strong></div><span class="source ${ctx.source === 'claude' ? '' : 'sim'}">${ctx.source === 'claude' ? esc(aiName()) : 'Mô phỏng'}</span><button class="icon-btn" type="button" data-act="clear-ai" aria-label="Xóa hội thoại">${icon('refresh', 16)}</button><button class="icon-btn" type="button" data-act="close-ai" aria-label="Đóng">${icon('x', 18)}</button></header>
-      <div class="msgs">${messages.map((msg) => bubble(msg)).join('')}${ctx.chatBusy === 'ai' ? `<div class="bubble ai"><span class="dots"></span> ${esc(aiName())} đang đọc dữ liệu, tìm nguồn và soạn câu trả lời…</div>` : ''}</div>
+      <header><span class="spark">${icon('sparkles', 18)}</span><div><strong>Trợ lý AI</strong></div><span class="source ${ctx.source === 'gemini' ? '' : 'sim'}">${ctx.source === 'gemini' ? 'Gemini' : 'Mô phỏng'}</span><button class="icon-btn" type="button" data-act="clear-ai" aria-label="Xóa hội thoại">${icon('refresh', 16)}</button><button class="icon-btn" type="button" data-act="close-ai" aria-label="Đóng">${icon('x', 18)}</button></header>
+      <div class="msgs">${messages.map((msg) => bubble(msg)).join('')}${ctx.chatBusy === 'ai' ? `<div class="bubble ai"><span class="dots"></span> Gemini đang đọc dữ liệu, tìm nguồn và soạn câu trả lời…</div>` : ''}</div>
       <div class="chips">${['Tư vấn kế hoạch', 'Vấn đề bài tập', 'Quản lý thời gian', 'Theo dõi, điều chỉnh', 'Hướng dẫn sử dụng'].map((text) => `<button type="button" data-act="chip" data-scope="ai" data-text="${esc(text)}">${esc(text)}</button>`).join('')}</div>
       <form class="composer" data-act="send" data-scope="ai"><textarea class="input" name="text" rows="2" placeholder="Hỏi trợ lý AI…"></textarea><button class="btn btn-primary icon-only" type="submit" aria-label="Gửi">${icon('send', 16)}</button></form>
     </aside>`

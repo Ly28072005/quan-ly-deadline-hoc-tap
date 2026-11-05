@@ -1,4 +1,4 @@
-const CACHE = 'sf-shell-72'
+const CACHE = 'sf-shell-73'
 self.addEventListener('install', (event) => { self.skipWaiting() })
 self.addEventListener('activate', (event) => { event.waitUntil(self.clients.claim()) })
 self.addEventListener('fetch', (event) => {

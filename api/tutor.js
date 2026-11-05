@@ -1,12 +1,22 @@
-const MODELS = [
-  'claude-sonnet-4-5-20250929',
-  'claude-sonnet-4-20250514',
-  'claude-3-5-sonnet-latest',
+// Studyflow AI endpoint — Google Gemini only.
+// The browser sends the user's own key in the x-gemini-key header (or set GEMINI_API_KEY on Vercel).
+
+const API = 'https://generativelanguage.googleapis.com/v1beta'
+
+// Tried in this order when the key can use them. Stable free-tier models first.
+const PREFERRED = [
+  'gemini-2.5-flash',
+  'gemini-flash-latest',
+  'gemini-2.0-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-flash-lite-latest',
+  'gemini-2.0-flash-lite',
 ]
+const MAX_MODELS = 4
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Headers', 'content-type, x-anthropic-key, x-gemini-key')
+  res.setHeader('Access-Control-Allow-Headers', 'content-type, x-gemini-key')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
 }
 
@@ -16,7 +26,7 @@ function clip(value, max) {
 }
 
 function systemPrompt() {
-  return `Bạn là trợ lý AI trong ứng dụng Studyflow, trợ lý học tập cho sinh viên Việt Nam. Trả lời tiếng Việt, cụ thể, giống khi sinh viên hỏi trên ChatGPT, Gemini hay Claude. Nếu câu hỏi không liên quan bài học, cứ trả lời tự nhiên như một trợ lý trò chuyện bình thường.
+  return `Bạn là trợ lý AI trong ứng dụng Studyflow, trợ lý học tập cho sinh viên Việt Nam. Trả lời tiếng Việt, cụ thể, giống khi sinh viên hỏi trên ChatGPT hay Gemini. Nếu câu hỏi không liên quan bài học, cứ trả lời tự nhiên như một trợ lý trò chuyện bình thường.
 
 Cách làm:
 - Đọc kỹ câu hỏi, đề bài, ảnh/PDF đính kèm, và tài liệu môn nếu có.
@@ -63,141 +73,39 @@ function userText(body) {
   return parts.filter(Boolean).join('\n\n')
 }
 
-function attachments(body) {
+function historyOf(body) {
+  const rows = Array.isArray(body.history) ? body.history.slice(-10) : []
   const out = []
-  const images = Array.isArray(body.images) ? body.images.slice(0, 4) : []
-  for (const image of images) {
-    if (!image?.data) continue
-    out.push({
-      type: 'image',
-      source: {
-        type: 'base64',
-        media_type: image.media_type || 'image/jpeg',
-        data: image.data,
-      },
-    })
-  }
-  const pdfs = Array.isArray(body.pdfs) ? body.pdfs.slice(0, 1) : []
-  for (const pdf of pdfs) {
-    if (!pdf?.data) continue
-    out.push({
-      type: 'document',
-      source: {
-        type: 'base64',
-        media_type: 'application/pdf',
-        data: pdf.data,
-      },
-    })
+  for (const row of rows) {
+    const text = clip(row.text || row.suggestion || '', 3000)
+    if (!text) continue
+    out.push({ role: row.role === 'ai' || row.role === 'assistant' ? 'model' : 'user', text })
   }
   return out
 }
 
-function historyOf(body) {
-  const rows = Array.isArray(body.history) ? body.history.slice(-8) : []
-  const messages = []
-  for (const row of rows) {
-    const text = clip(row.text || row.suggestion || '', 2500)
-    if (!text) continue
-    const role = row.role === 'ai' || row.role === 'assistant' ? 'assistant' : 'user'
-    messages.push({ role, content: text })
-  }
-  return messages
-}
-
-function extractReply(content) {
-  const parts = []
-  const sources = []
-  for (const block of content || []) {
-    if (block.type === 'text' && block.text) {
-      parts.push(block.text)
-      for (const cite of block.citations || []) {
-        const url = cite.url || cite.source?.url
-        const title = cite.title || cite.cited_text || url
-        if (url && !sources.some((item) => item.url === url)) sources.push({ title, url })
-      }
-    }
-    if (block.type === 'web_search_tool_result' && Array.isArray(block.content)) {
-      for (const item of block.content) {
-        if (item.url && !sources.some((row) => row.url === item.url)) {
-          sources.push({ title: item.title || item.url, url: item.url })
-        }
-      }
-    }
-  }
-  let text = parts.join('\n\n').trim()
-  if (sources.length && !/https?:\/\//.test(text.slice(-800))) {
-    text += `\n\n**Nguồn**\n${sources.slice(0, 6).map((item) => `- ${item.title}: ${item.url}`).join('\n')}`
-  }
-  return { text, sources, searched: sources.length > 0 }
-}
-
-async function callClaude(apiKey, model, payload, useSearch) {
-  const messages = historyOf(payload)
-  messages.push({
-    role: 'user',
-    content: [...attachments(payload), { type: 'text', text: userText(payload) }],
-  })
-  const body = {
-    model,
-    max_tokens: 4096,
-    system: systemPrompt(),
-    messages,
-  }
-  if (useSearch) {
-    body.tools = [{
-      type: 'web_search_20250305',
-      name: 'web_search',
-      max_uses: 4,
-      user_location: { type: 'approximate', country: 'VN', timezone: 'Asia/Ho_Chi_Minh' },
-    }]
-  }
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  })
-  const json = await response.json().catch(() => ({}))
-  return { ok: response.ok, status: response.status, json }
-}
-
-function errorOf(status, json) {
-  const msg = String(json?.error?.message || json?.error || '')
-  if (status === 401) return 'Khóa Claude không hợp lệ. Hãy dán lại khóa sk-ant từ console.anthropic.com.'
-  if (status === 429) return 'Claude đang bận, thử lại sau một lát.'
-  if (/web search/i.test(msg) && /not enabled|disabled/i.test(msg)) return 'search_disabled'
-  if (/not_found|model/i.test(msg)) return 'model'
-  return msg || `Claude trả lỗi ${status}.`
-}
-
-const GEMINI_MODELS = [
-  'gemini-flash-latest',
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-]
-
-function geminiContents(payload) {
+function chatContents(payload) {
   const contents = []
   const push = (role, part) => {
     const last = contents[contents.length - 1]
     if (last && last.role === role) last.parts.push(part)
     else contents.push({ role, parts: [part] })
   }
-  for (const row of historyOf(payload)) {
-    push(row.role === 'assistant' ? 'model' : 'user', { text: row.content })
+  for (const row of historyOf(payload)) push(row.role, { text: row.text })
+  const images = Array.isArray(payload.images) ? payload.images.slice(0, 4) : []
+  for (const image of images) {
+    if (image?.data) push('user', { inline_data: { mime_type: image.media_type || 'image/jpeg', data: image.data } })
   }
-  for (const block of attachments(payload)) {
-    push('user', { inline_data: { mime_type: block.source.media_type, data: block.source.data } })
+  const pdfs = Array.isArray(payload.pdfs) ? payload.pdfs.slice(0, 1) : []
+  for (const pdf of pdfs) {
+    if (pdf?.data) push('user', { inline_data: { mime_type: 'application/pdf', data: pdf.data } })
   }
   push('user', { text: userText(payload) })
   while (contents.length && contents[0].role === 'model') contents.shift()
   return contents
 }
 
-function geminiReply(json) {
+function replyOf(json) {
   const candidate = json?.candidates?.[0]
   const parts = candidate?.content?.parts || []
   let text = parts.filter((part) => part.text && !part.thought).map((part) => part.text).join('').trim()
@@ -212,14 +120,58 @@ function geminiReply(json) {
   return { text, sources, searched: sources.length > 0 }
 }
 
-async function callGemini(apiKey, model, payload, useSearch) {
-  const body = {
-    systemInstruction: { parts: [{ text: systemPrompt() }] },
-    contents: geminiContents(payload),
-    generationConfig: { maxOutputTokens: 8192 },
+// Turns a Google error into Vietnamese, always keeping Google's own message for diagnosis.
+function errorText(status, json) {
+  const msg = String(json?.error?.message || '').trim()
+  const detail = msg ? `\n\nChi tiết từ Google: ${msg.slice(0, 400)}` : ''
+  const all = `${msg} ${JSON.stringify(json?.error?.details || '')}`
+  let vi = `Gemini trả lỗi ${status}.`
+  if (/API_KEY_INVALID|API key not valid|API key expired/i.test(all)) vi = 'Khóa Gemini không hợp lệ hoặc đã hết hạn. Tạo khóa mới tại aistudio.google.com/apikey rồi dán lại trong Cài đặt.'
+  else if (/location is not supported/i.test(all)) vi = 'Google chưa hỗ trợ Gemini API ở khu vực máy chủ đang chạy.'
+  else if (/SERVICE_DISABLED|has not been used|is disabled/i.test(all)) vi = 'Dự án Google của khóa này chưa bật Generative Language API. Tạo khóa ngay trong aistudio.google.com/apikey (chọn "Create API key in new project") là được bật sẵn.'
+  else if (status === 429) vi = 'Gemini đã chạm giới hạn miễn phí (số lượt mỗi phút hoặc mỗi ngày). Đợi khoảng 1 phút rồi hỏi lại.'
+  else if (status === 403) vi = 'Khóa Gemini không có quyền gọi API.'
+  else if (status === 404) vi = 'Không tìm thấy model Gemini phù hợp cho khóa này.'
+  else if (status >= 500) vi = 'Máy chủ Gemini đang bận. Thử lại sau ít phút.'
+  return vi + detail
+}
+
+const fatal = (status, json) => status === 401 || status === 403
+  || /API_KEY_INVALID|API key not valid|location is not supported|SERVICE_DISABLED/i.test(`${json?.error?.message || ''} ${JSON.stringify(json?.error?.details || '')}`)
+
+// Asks Google which models this key may call, keeps the useful text models, best first.
+const modelCache = new Map()
+async function modelsFor(apiKey) {
+  const hit = modelCache.get(apiKey)
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit
+  let found = null
+  try {
+    const response = await fetch(`${API}/models?pageSize=200`, { headers: { 'x-goog-api-key': apiKey } })
+    const json = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      if (fatal(response.status, json)) return { error: errorText(response.status, json), status: response.status }
+    } else {
+      found = (json.models || [])
+        .filter((model) => (model.supportedGenerationMethods || []).includes('generateContent'))
+        .map((model) => String(model.name || '').replace(/^models\//, ''))
+    }
+  } catch { /* fall back to the preferred list */ }
+  let list = PREFERRED
+  if (found && found.length) {
+    const extra = found
+      .filter((name) => /^gemini-.*flash/.test(name) && !/image|tts|audio|live|embedding|thinking/.test(name))
+      .filter((name) => !PREFERRED.includes(name))
+      .sort((a, b) => b.localeCompare(a))
+    list = [...PREFERRED.filter((name) => found.includes(name)), ...extra]
+    if (!list.length) list = PREFERRED
   }
-  if (useSearch) body.tools = [{ google_search: {} }]
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+  const entry = { list: list.slice(0, MAX_MODELS), at: Date.now() }
+  modelCache.set(apiKey, entry)
+  return entry
+}
+
+async function generate(apiKey, model, body) {
+  const response = await fetch(`${API}/models/${model}:generateContent`, {
     method: 'POST',
     headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
     body: JSON.stringify(body),
@@ -228,78 +180,51 @@ async function callGemini(apiKey, model, payload, useSearch) {
   return { ok: response.ok, status: response.status, json }
 }
 
-function geminiError(status, json) {
-  const msg = String(json?.error?.message || '')
-  const reason = JSON.stringify(json?.error?.details || '')
-  if (/API_KEY_INVALID|API key not valid/i.test(msg + reason)) return 'Khóa Gemini không hợp lệ. Lấy lại khóa tại aistudio.google.com/apikey rồi dán vào Cài đặt.'
-  if (status === 429) return 'Gemini đã chạm giới hạn miễn phí (số lượt mỗi phút hoặc mỗi ngày). Đợi khoảng 1 phút rồi hỏi lại.'
-  if (status === 403) return 'Khóa Gemini chưa được phép gọi API. Kiểm tra lại khóa trên aistudio.google.com.'
-  return msg || `Gemini trả lỗi ${status}.`
-}
-
-async function askGemini(apiKey, payload) {
+// Runs `build(useSearch)` across models until one answers. `read(json)` returns a result or null.
+async function runGemini(apiKey, { build, read, search }) {
+  const models = await modelsFor(apiKey)
+  if (models.error) return { ok: false, status: models.status, text: models.error }
   let lastError = ''
   let lastStatus = 502
-  for (const model of GEMINI_MODELS) {
-    for (const useSearch of [true, false]) {
+  for (const model of models.list) {
+    for (const useSearch of search ? [true, false] : [false]) {
       try {
-        const result = await callGemini(apiKey, model, payload, useSearch)
+        const result = await generate(apiKey, model, build(useSearch))
         if (result.ok) {
-          const reply = geminiReply(result.json)
-          if (reply.text) return { ok: true, ...reply, model, provider: 'gemini' }
+          const value = read(result.json)
+          if (value) return { ok: true, ...value, model }
           const blocked = result.json?.promptFeedback?.blockReason || result.json?.candidates?.[0]?.finishReason
-          lastError = blocked ? `Gemini không trả lời câu này (${blocked}).` : 'Gemini chưa trả lời được.'
+          lastError = blocked ? `Gemini không trả lời được câu này (${blocked}).` : 'Gemini trả về kết quả rỗng.'
           continue
         }
-        lastError = geminiError(result.status, result.json)
         lastStatus = result.status
-        if (result.status === 401 || result.status === 403 || /không hợp lệ/.test(lastError)) {
-          return { ok: false, status: result.status, text: lastError }
-        }
+        lastError = errorText(result.status, result.json)
+        if (fatal(result.status, result.json)) return { ok: false, status: result.status, text: lastError }
         if (result.status === 404) break
       } catch (error) {
-        lastError = error.message || 'network'
+        lastError = `Không kết nối được Gemini: ${error.message || 'network'}`
       }
     }
   }
   return { ok: false, status: lastStatus, text: lastError || 'Không gọi được Gemini.' }
 }
 
-async function askAnthropic(apiKey, payload) {
-  let lastError = ''
-  let lastStatus = 502
-  for (const model of MODELS) {
-    let useSearch = true
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      try {
-        const result = await callClaude(apiKey, model, payload, useSearch)
-        if (result.ok && result.json?.content) {
-          const reply = extractReply(result.json.content)
-          if (reply.text) return { ok: true, ...reply, model, provider: 'claude' }
-        }
-        const code = errorOf(result.status, result.json)
-        if ((code === 'search_disabled' || (result.status === 400 && /tool|web_search/i.test(code))) && useSearch) {
-          useSearch = false
-          continue
-        }
-        if (code === 'model') break
-        lastError = code
-        lastStatus = result.status
-        if (result.status === 401) return { ok: false, status: 401, text: lastError }
-        if (result.status === 400 && useSearch) {
-          useSearch = false
-          continue
-        }
-        if (result.status === 400) return { ok: false, status: 400, text: lastError }
-      } catch (error) {
-        lastError = error.message || 'network'
-      }
-    }
-  }
-  return { ok: false, status: lastStatus, text: lastError || 'Không gọi được Claude. Thử lại hoặc kiểm tra khóa API.' }
+function askChat(apiKey, payload) {
+  const contents = chatContents(payload)
+  return runGemini(apiKey, {
+    search: true,
+    build: (useSearch) => ({
+      systemInstruction: { parts: [{ text: systemPrompt() }] },
+      contents,
+      generationConfig: { maxOutputTokens: 8192 },
+      ...(useSearch ? { tools: [{ google_search: {} }] } : {}),
+    }),
+    read: (json) => {
+      const reply = replyOf(json)
+      return reply.text ? reply : null
+    },
+  })
 }
-
-// ---------- Plan mode: AI reads the output requirement and splits it into tasks ----------
 
 function planPrompt() {
   return `Bạn là trợ lý lập kế hoạch học tập cho sinh viên Việt Nam. Đọc yêu cầu đầu ra của môn và tài liệu (nếu có), rồi chia thành các nhiệm vụ cụ thể để sinh viên làm dần đến hạn.
@@ -353,131 +278,70 @@ function parsePlan(raw) {
   return { groups, note: String(json.note || '').trim().slice(0, 300) }
 }
 
-async function planWithGemini(apiKey, body) {
-  let lastError = ''
-  let lastStatus = 502
-  for (const model of GEMINI_MODELS) {
-    try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-        method: 'POST',
-        headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: planPrompt() }] },
-          contents: [{ role: 'user', parts: [{ text: planText(body) }] }],
-          generationConfig: { maxOutputTokens: 8192, responseMimeType: 'application/json', temperature: 0.4 },
-        }),
-      })
-      const json = await response.json().catch(() => ({}))
-      if (response.ok) {
-        const plan = parsePlan(geminiReply(json).text)
-        if (plan) return { ok: true, ...plan, provider: 'gemini' }
-        lastError = 'Gemini trả về kế hoạch không đúng định dạng.'
-        continue
-      }
-      lastStatus = response.status
-      lastError = geminiError(response.status, json)
-      if (response.status === 401 || response.status === 403 || /không hợp lệ/.test(lastError)) break
-    } catch (error) {
-      lastError = error.message || 'network'
-    }
-  }
-  return { ok: false, status: lastStatus, text: lastError || 'Không gọi được Gemini.' }
+function askPlan(apiKey, payload) {
+  return runGemini(apiKey, {
+    search: false,
+    build: () => ({
+      systemInstruction: { parts: [{ text: planPrompt() }] },
+      contents: [{ role: 'user', parts: [{ text: planText(payload) }] }],
+      generationConfig: { maxOutputTokens: 8192, responseMimeType: 'application/json', temperature: 0.4 },
+    }),
+    read: (json) => parsePlan(replyOf(json).text),
+  })
 }
 
-async function planWithClaude(apiKey, body) {
-  let lastError = ''
-  let lastStatus = 502
-  for (const model of MODELS) {
-    try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'content-type': 'application/json' },
-        body: JSON.stringify({
-          model,
-          max_tokens: 4096,
-          system: planPrompt(),
-          messages: [{ role: 'user', content: planText(body) }],
-        }),
-      })
-      const json = await response.json().catch(() => ({}))
-      if (response.ok) {
-        const plan = parsePlan(extractReply(json.content).text)
-        if (plan) return { ok: true, ...plan, provider: 'claude' }
-        lastError = 'Claude trả về kế hoạch không đúng định dạng.'
-        continue
-      }
-      lastStatus = response.status
-      const code = errorOf(response.status, json)
-      if (code === 'model') continue
-      lastError = code
-      break
-    } catch (error) {
-      lastError = error.message || 'network'
-    }
-  }
-  return { ok: false, status: lastStatus, text: lastError || 'Không gọi được Claude.' }
+// Quick key check used by the Settings "Lưu khóa" button.
+function ping(apiKey) {
+  return runGemini(apiKey, {
+    search: false,
+    build: () => ({
+      contents: [{ role: 'user', parts: [{ text: 'Trả lời đúng một từ: OK' }] }],
+      generationConfig: { maxOutputTokens: 256 },
+    }),
+    read: (json) => (replyOf(json).text ? { text: 'OK' } : null),
+  })
 }
 
 module.exports = async function handler(req, res) {
   cors(res)
   if (req.method === 'OPTIONS') return res.status(204).end()
-  const envKey = process.env.ANTHROPIC_API_KEY || ''
-  const envGemini = process.env.GEMINI_API_KEY || ''
-  if (req.method === 'GET') return res.status(200).json({ live: Boolean(envKey || envGemini) })
+  const envKey = process.env.GEMINI_API_KEY || ''
+  if (req.method === 'GET') return res.status(200).json({ live: Boolean(envKey) })
   if (req.method !== 'POST') return res.status(405).json({ error: 'method' })
 
-  const claudeKey = envKey || String(req.headers['x-anthropic-key'] || '').trim()
-  const geminiKey = envGemini || String(req.headers['x-gemini-key'] || '').trim()
-  if (!claudeKey && !geminiKey) {
+  const apiKey = envKey || String(req.headers['x-gemini-key'] || '').trim()
+  if (!apiKey) {
     return res.status(501).json({
       error: 'no_key',
-      text: 'Chưa có khóa AI. Dán khóa Gemini miễn phí (aistudio.google.com/apikey) hoặc khóa Anthropic trong Cài đặt.',
+      text: 'Chưa có khóa Gemini. Lấy khóa miễn phí tại aistudio.google.com/apikey rồi dán vào Cài đặt, mục Trợ lý AI.',
     })
   }
-
   const payload = req.body && typeof req.body === 'object' ? req.body : {}
+  const fail = (result) => res.status(result.status >= 400 ? result.status : 502).json({ error: 'gemini', text: result.text })
+
+  if (payload.mode === 'ping') {
+    const result = await ping(apiKey)
+    return result.ok ? res.status(200).json({ ok: true, model: result.model }) : fail(result)
+  }
   if (payload.mode === 'plan') {
     if (!String(payload.output || '').trim()) return res.status(400).json({ error: 'missing', text: 'Thiếu yêu cầu đầu ra.' })
-    let planFail = null
-    if (geminiKey) {
-      const plan = await planWithGemini(geminiKey, payload)
-      if (plan.ok) return res.status(200).json(plan)
-      planFail = plan
-    }
-    if (claudeKey) {
-      const plan = await planWithClaude(claudeKey, payload)
-      if (plan.ok) return res.status(200).json(plan)
-      planFail = planFail || plan
-    }
-    return res.status(planFail.status >= 400 ? planFail.status : 502).json({ error: 'plan', text: planFail.text })
+    const result = await askPlan(apiKey, payload)
+    return result.ok
+      ? res.status(200).json({ ok: true, groups: result.groups, note: result.note, model: result.model, provider: 'gemini' })
+      : fail(result)
   }
   if (!String(payload.question || '').trim()) {
     return res.status(400).json({ error: 'missing', text: 'Thiếu câu hỏi.' })
   }
-
-  const send = (reply) => res.status(200).json({
-    text: reply.text,
-    sources: reply.sources,
-    searched: reply.searched,
-    model: reply.model,
-    provider: reply.provider,
+  const result = await askChat(apiKey, payload)
+  if (!result.ok) return fail(result)
+  return res.status(200).json({
+    text: result.text,
+    sources: result.sources,
+    searched: result.searched,
+    model: result.model,
+    provider: 'gemini',
   })
-  const fail = (reply, error) => res.status(reply.status >= 400 ? reply.status : 502).json({ error, text: reply.text })
-
-  // Gemini first when the user has a free key; Claude stays as backup.
-  let geminiFail = null
-  if (geminiKey) {
-    const reply = await askGemini(geminiKey, payload)
-    if (reply.ok) return send(reply)
-    geminiFail = reply
-  }
-  if (claudeKey) {
-    const reply = await askAnthropic(claudeKey, payload)
-    if (reply.ok) return send(reply)
-    if (geminiFail) return fail({ ...geminiFail, text: `${geminiFail.text}\n\n(Claude dự phòng cũng chưa dùng được.)` }, 'gemini')
-    return fail(reply, 'claude')
-  }
-  return fail(geminiFail, 'gemini')
 }
 
 module.exports.config = { maxDuration: 60 }

@@ -1,27 +1,26 @@
-const KEY = 'sf-claude-key'
+// Studyflow AI client — talks to /api/tutor, which calls Google Gemini.
 const GEMINI_KEY = 'sf-gemini-key'
 
-function readKey(name) {
-  try { return localStorage.getItem(name) || '' } catch { return '' }
+// Claude was removed; drop any old Anthropic key left in the browser.
+try { localStorage.removeItem('sf-claude-key') } catch { /* ignore */ }
+
+export function geminiKey() {
+  try { return localStorage.getItem(GEMINI_KEY) || '' } catch { return '' }
 }
 
-function writeKey(name, value) {
+export function setGeminiKey(value) {
   const key = String(value || '').trim()
   try {
-    if (key) localStorage.setItem(name, key)
-    else localStorage.removeItem(name)
+    if (key) localStorage.setItem(GEMINI_KEY, key)
+    else localStorage.removeItem(GEMINI_KEY)
   } catch { /* ignore */ }
 }
 
-export function claudeKey() { return readKey(KEY) }
-export function setClaudeKey(value) { writeKey(KEY, value) }
-export function geminiKey() { return readKey(GEMINI_KEY) }
-export function setGeminiKey(value) { writeKey(GEMINI_KEY, value) }
-
-// Name shown on the chat badge: Gemini is tried first when both keys exist.
-export function aiName() {
-  if (geminiKey()) return claudeKey() ? 'Gemini + Claude' : 'Gemini'
-  return 'Claude'
+function headers() {
+  const out = { 'content-type': 'application/json' }
+  const key = geminiKey()
+  if (key) out['x-gemini-key'] = key
+  return out
 }
 
 export function tutorUrl() {
@@ -30,7 +29,7 @@ export function tutorUrl() {
   return '/api/tutor'
 }
 
-export async function probeClaude() {
+export async function probeAi() {
   try {
     const res = await fetch(tutorUrl(), { method: 'GET' })
     const json = await res.json()
@@ -40,8 +39,8 @@ export async function probeClaude() {
   }
 }
 
-export function claudeReady(serverLive) {
-  return Boolean(serverLive || claudeKey() || geminiKey())
+export function aiReady(serverLive) {
+  return Boolean(serverLive || geminiKey())
 }
 
 async function blobToBase64(blob) {
@@ -117,59 +116,49 @@ export function buildTutorPayload({ question, data, found, corpus, history }) {
     files,
     images,
     pdfs,
-    history: (history || []).slice(-8).map((row) => ({
+    history: (history || []).slice(-10).map((row) => ({
       role: row.role,
       text: row.role === 'user' ? row.text : row.suggestion,
     })),
   }
 }
 
-export async function askClaude(payload) {
-  const headers = { 'content-type': 'application/json' }
-  const key = claudeKey()
-  if (key) headers['x-anthropic-key'] = key
-  const gemini = geminiKey()
-  if (gemini) headers['x-gemini-key'] = gemini
-  const res = await fetch(tutorUrl(), {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(payload),
-  })
+export async function askAi(payload) {
+  const res = await fetch(tutorUrl(), { method: 'POST', headers: headers(), body: JSON.stringify(payload) })
   const json = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    return { ok: false, error: json.error || 'claude', text: json.text || 'Không gọi được Claude.' }
-  }
-  if (!json.text) return { ok: false, error: 'empty', text: 'Claude chưa trả lời được.' }
-  return {
-    ok: true,
-    text: json.text,
-    searched: !!json.searched,
-    sources: json.sources || [],
-    provider: json.provider === 'gemini' ? 'Gemini' : 'Claude',
+  if (!res.ok) return { ok: false, error: json.error || 'gemini', text: json.text || `Không gọi được Gemini (lỗi ${res.status}).` }
+  if (!json.text) return { ok: false, error: 'empty', text: 'Gemini chưa trả lời được.' }
+  return { ok: true, text: json.text, searched: !!json.searched, sources: json.sources || [] }
+}
+
+// Checks the saved key with a tiny request. Returns { ok, text }.
+export async function testGeminiKey() {
+  try {
+    const res = await fetch(tutorUrl(), { method: 'POST', headers: headers(), body: JSON.stringify({ mode: 'ping' }) })
+    const json = await res.json().catch(() => ({}))
+    if (res.ok && json.ok) return { ok: true, text: `Khóa Gemini dùng được (model ${json.model}).` }
+    return { ok: false, text: json.text || `Gemini lỗi ${res.status}.` }
+  } catch {
+    return { ok: false, text: 'Không kết nối được máy chủ để kiểm tra khóa.' }
   }
 }
 
-// Ask the AI to split an output requirement into task groups. Returns null on any failure
-// so the caller can fall back to the built-in estimator.
+// Asks Gemini to split an output requirement into task groups.
+// On failure the caller falls back to the built-in estimator.
 export async function askPlan(payload, signal) {
-  const headers = { 'content-type': 'application/json' }
-  const key = claudeKey()
-  if (key) headers['x-anthropic-key'] = key
-  const gemini = geminiKey()
-  if (gemini) headers['x-gemini-key'] = gemini
   try {
     const res = await fetch(tutorUrl(), {
       method: 'POST',
-      headers,
+      headers: headers(),
       body: JSON.stringify({ ...payload, mode: 'plan' }),
       signal,
     })
     const json = await res.json().catch(() => ({}))
     if (!res.ok || !Array.isArray(json.groups) || !json.groups.length) {
-      return { ok: false, text: json.text || 'AI chưa chia được nhiệm vụ.' }
+      return { ok: false, text: json.text || 'Gemini chưa chia được nhiệm vụ.' }
     }
-    return { ok: true, groups: json.groups, note: json.note || '', provider: json.provider === 'gemini' ? 'Gemini' : 'Claude' }
+    return { ok: true, groups: json.groups, note: json.note || '', provider: 'Gemini' }
   } catch (error) {
-    return { ok: false, text: error?.name === 'AbortError' ? 'AI trả lời quá lâu.' : 'Mất kết nối tới AI.' }
+    return { ok: false, text: error?.name === 'AbortError' ? 'Gemini trả lời quá lâu.' : 'Mất kết nối tới Gemini.' }
   }
 }

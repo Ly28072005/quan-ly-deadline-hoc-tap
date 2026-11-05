@@ -2,14 +2,14 @@ import { createStore } from './store.js'
 import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
-} from './model.js?v=72'
+} from './model.js?v=73'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=72'
-import { aiName, askClaude, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, geminiKey, probeClaude, setClaudeKey, setGeminiKey } from './claude.js?v=72'
-import { esc, icon, logo } from './html.js?v=72'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=72'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=72'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=72'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=73'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=73'
+import { esc, icon, logo } from './html.js?v=73'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=73'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=73'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=73'
 
 const store = createStore()
 const NAV = [
@@ -224,9 +224,8 @@ function context() {
     now, user, data, view, route, query: route.query, unread: store.unread(now),
     part: dayPart(new Date(now)), given: givenName(user?.name),
     form, ai, manual, slotDay, cal, narrow: narrowQuery.matches,
-    source: data.settings.aiAck && claudeReady(aiLive) ? 'claude' : 'sim',
-    claudeOn: claudeReady(aiLive),
-    aiName: aiName(),
+    source: data.settings.aiAck && aiReady(aiLive) ? 'gemini' : 'sim',
+    aiOn: aiReady(aiLive),
     chatBusy,
     taskBack,
   }
@@ -440,10 +439,11 @@ async function onSubmit(event) {
   else if (act === 'save-slot') saveSlot(fields)
   else if (act === 'send') sendChat(formEl.dataset.scope, fields.text)
   else if (act === 'save-claude') {
-    setClaudeKey(fields.key)
     setGeminiKey(fields.gemini)
-    toast(fields.key?.trim() || fields.gemini?.trim() ? 'Đã lưu khóa AI' : 'Đã xóa khóa AI')
     render()
+    if (!fields.gemini?.trim()) { toast('Đã xóa khóa Gemini'); return }
+    toast('Đã lưu khóa, đang kiểm tra với Google…')
+    testGeminiKey().then((check) => toast(check.ok ? check.text : `Khóa chưa dùng được: ${check.text}`))
   }
 }
 
@@ -578,10 +578,10 @@ function rebuildAi() {
   queueSuggest()
 }
 
-// Asks Gemini/Claude to split the output requirement into tasks. Resolves to null
+// Asks Gemini to split the output requirement into tasks. Resolves to null
 // when no key is set, so the built-in estimator in model.js is used instead.
 async function fetchAiPlan(signal) {
-  if (!claudeReady(aiLive)) return null
+  if (!aiReady(aiLive)) return null
   const fresh = store.snapshot()
   const course = fresh.courses.find((item) => item.id === ai.courseId)
   const picked = fresh.documents.filter((doc) => (ai.docIds || []).includes(doc.id)).slice(0, 4)
@@ -603,10 +603,10 @@ async function fetchAiPlan(signal) {
 
 function queueSuggest() {
   const run = ++planRun
-  const useAi = claudeReady(aiLive)
+  const useAi = aiReady(aiLive)
   ai.step = 2
   ai.chars = 120
-  ai.waitLabel = useAi ? `${aiName()} đang đọc yêu cầu đầu ra và chia nhiệm vụ…` : 'AI đang viết kế hoạch…'
+  ai.waitLabel = useAi ? `Gemini đang đọc yêu cầu đầu ra và chia nhiệm vụ…` : 'AI đang viết kế hoạch…'
   render()
   window.clearInterval(aiTimer)
   aiTimer = window.setInterval(() => {
@@ -726,22 +726,21 @@ function saveSlot(fields) {
 function sendChat(scope, text) {
   const clean = String(text || '').trim()
   if (!clean || chatBusy) return
-  if (!claudeReady(aiLive)) {
+  if (!aiReady(aiLive)) {
     pendingAsk = `${scope}\n${clean}`
     modal = {
-      title: 'Kết nối trợ lý AI',
+      title: 'Kết nối Gemini',
       body: 'Trợ lý đọc đề, tài liệu môn, rồi tìm trên web nếu cần — giống lúc bạn hỏi ChatGPT hay Gemini.',
-      extra: claudeKeyField(),
+      extra: geminiKeyField(),
       ok: 'Lưu và hỏi', cancel: 'Để sau', danger: false,
-      run: (key) => {
-        if (key) setClaudeKey(key)
+      run: () => {
         store.setSettings({ aiAck: true })
         const packed = pendingAsk
         pendingAsk = ''
-        if (claudeReady(aiLive) && packed) {
+        if (aiReady(aiLive) && packed) {
           const split = packed.indexOf('\n')
           sendChat(packed.slice(0, split), packed.slice(split + 1))
-        } else toast('Cần khóa Gemini (miễn phí) hoặc khóa Anthropic để trợ lý trả lời.')
+        } else toast('Cần khóa Gemini (miễn phí) để trợ lý trả lời.')
       },
     }
     render()
@@ -798,7 +797,7 @@ async function finishChat(scope, clean, taskId) {
   let corpus = { docs: [], files: [], taskId: '' }
   try {
     if (needFiles) corpus = await loadTutorCorpus(data, taskId, clean)
-  } catch { /* still ask Claude */ }
+  } catch { /* still ask Gemini */ }
   const view = buildView(data, Date.now())
   const found = view.leaves.find((task) => task.id === (taskId || corpus.taskId)) || null
   const history = scope === 'task'
@@ -806,27 +805,27 @@ async function finishChat(scope, clean, taskId) {
     : (data.assistant || [])
   let reply = null
   try {
-    const live = await askClaude(buildTutorPayload({ question: clean, data, found, corpus, history }))
+    const live = await askAi(buildTutorPayload({ question: clean, data, found, corpus, history }))
     if (live.ok) {
       const actions = found?.plan?.courseId
         ? [{ label: 'Mở tài liệu môn', hash: `#/tai-lieu/${found.plan.courseId}` }]
         : found ? [{ label: 'Xem kế hoạch', hash: `#/ke-hoach/${found.plan.id}` }] : []
       reply = {
-        from: live.searched ? `${live.provider} · đã tìm thêm nguồn trên web` : live.provider,
+        from: live.searched ? 'Gemini · đã tìm thêm nguồn trên web' : 'Gemini',
         suggestion: live.text,
         actions,
       }
     } else {
       reply = {
-        from: `Chưa gọi được ${aiName()}`,
-        suggestion: claudeErrorText(live.text) || 'Dán khóa Gemini (miễn phí) hoặc khóa Anthropic trong Cài đặt thông báo, mục Trợ lý AI, rồi hỏi lại.',
+        from: 'Chưa gọi được Gemini',
+        suggestion: live.text || 'Dán khóa Gemini (miễn phí) trong Cài đặt thông báo, mục Trợ lý AI, rồi hỏi lại.',
         actions: [{ label: 'Mở cài đặt', hash: '#/thong-bao/cai-dat' }],
       }
     }
   } catch {
     reply = {
-      from: `Mất kết nối ${aiName()}`,
-      suggestion: 'Kiểm tra mạng rồi hỏi lại. Nếu chưa có khóa, dán khóa Gemini hoặc Anthropic trong Cài đặt.',
+      from: 'Mất kết nối Gemini',
+      suggestion: 'Kiểm tra mạng rồi hỏi lại. Nếu chưa có khóa, dán khóa Gemini trong Cài đặt.',
       actions: [{ label: 'Mở cài đặt', hash: '#/thong-bao/cai-dat' }],
     }
   }
@@ -838,27 +837,18 @@ async function finishChat(scope, clean, taskId) {
   render()
 }
 
-function claudeErrorText(text) {
-  const raw = String(text || '')
-  if (/credit balance is too low/i.test(raw)) return 'Khóa Claude đã kết nối đúng, nhưng tài khoản Anthropic hết credit nên Claude từ chối trả lời. Cách miễn phí: lấy khóa Gemini tại aistudio.google.com/apikey rồi dán vào Cài đặt, mục Trợ lý AI. Hoặc nạp credit trên console.anthropic.com.'
-  if (/invalid x-api-key|authentication_error/i.test(raw)) return 'Khóa Anthropic không hợp lệ hoặc đã bị thu hồi. Hãy tạo khóa mới trên console.anthropic.com rồi dán lại trong Cài đặt.'
-  if (/rate limit|overloaded/i.test(raw)) return 'Claude đang quá tải hoặc vượt giới hạn tốc độ. Đợi vài giây rồi hỏi lại.'
-  return raw
-}
-
-function claudeKeyField() {
-  return `<label class="field claude-key"><span>Khóa Gemini (miễn phí)</span><input class="input" name="gemini-key" type="password" autocomplete="off" placeholder="AIza…" value="${esc(geminiKey())}"></label><p class="fine">Lấy miễn phí tại aistudio.google.com/apikey (đăng nhập Google → Create API key).</p><label class="field claude-key"><span>Khóa Anthropic (tùy chọn, trả phí)</span><input class="input" name="claude-key" type="password" autocomplete="off" placeholder="sk-ant-…" value="${esc(claudeKey())}"></label>`
+function geminiKeyField() {
+  return `<label class="field claude-key"><span>Khóa Gemini (miễn phí)</span><input class="input" name="gemini-key" type="password" autocomplete="off" placeholder="AIza…" value="${esc(geminiKey())}"></label><p class="fine">Lấy miễn phí tại aistudio.google.com/apikey (đăng nhập Google → Create API key).</p>`
 }
 
 function openAi(prefill) {
   if (!store.snapshot().settings.aiAck) {
     modal = {
       title: 'Cho phép trợ lý AI',
-      body: 'Studyflow gọi Gemini hoặc Claude để trả lời, đọc đề, tài liệu môn và tìm nguồn trên web — giống lúc bạn hỏi ChatGPT hay Gemini.',
-      extra: claudeReady(aiLive) ? '' : claudeKeyField(),
+      body: 'Studyflow gọi Gemini để trả lời, đọc đề, tài liệu môn và tìm nguồn trên web — giống lúc bạn hỏi ChatGPT hay Gemini.',
+      extra: aiReady(aiLive) ? '' : geminiKeyField(),
       ok: 'Cho phép', cancel: 'Để sau', danger: false,
-      run: (key) => {
-        if (key) setClaudeKey(key)
+      run: () => {
         store.setSettings({ aiAck: true })
         drawer = true
         if (prefill) sendChat('ai', prefill)
@@ -867,16 +857,15 @@ function openAi(prefill) {
     render()
     return
   }
-  if (!claudeReady(aiLive)) {
+  if (!aiReady(aiLive)) {
     modal = {
-      title: 'Kết nối trợ lý AI',
+      title: 'Kết nối Gemini',
       body: 'Dán khóa Gemini (miễn phí) để trợ lý trả lời và tìm trên web. Tài liệu môn vẫn được đọc trước.',
-      extra: claudeKeyField(),
+      extra: geminiKeyField(),
       ok: 'Lưu và hỏi', cancel: 'Để sau', danger: false,
-      run: (key) => {
-        if (key) setClaudeKey(key)
+      run: () => {
         drawer = true
-        if (prefill && claudeReady(aiLive)) sendChat('ai', prefill)
+        if (prefill && aiReady(aiLive)) sendChat('ai', prefill)
       },
     }
     render()
@@ -923,12 +912,11 @@ function onClick(event) {
   }
   if (act === 'modal-no') { modal = null; render() }
   if (act === 'modal-yes') {
-    const typedKey = document.querySelector('[name="claude-key"]')?.value?.trim() || ''
     const typedGemini = document.querySelector('[name="gemini-key"]')
     if (typedGemini) setGeminiKey(typedGemini.value)
     const run = modal?.run
     modal = null
-    if (run) run(typedKey)
+    if (run) run()
     render()
   }
   if (act === 'range') setQuery({ range: node.dataset.value })
@@ -1633,7 +1621,7 @@ store.init().then(() => {
   if (!location.hash) location.hash = '#/'
   onRoute()
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {})
-  probeClaude().then((live) => {
+  probeAi().then((live) => {
     aiLive = live
     if (store.current()) render()
   })

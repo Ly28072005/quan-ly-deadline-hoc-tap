@@ -230,7 +230,7 @@ export function composeTutor({ found, data, text, corpus }) {
     return {
       from,
       suggestion: [
-        `**Để mình giải được “${found.name}” như khi bạn gửi đề cho Claude**`,
+        `**Để mình giải được “${found.name}” như khi bạn gửi đề cho Gemini**`,
         `1. Vào Tài liệu học tập của ${courseName}, tải slide / giáo trình / đề cương.`,
         '2. Đẩy đề bài dạng PDF, Word hoặc txt ở khung bên trái.',
         '3. Hỏi lại “Giải bài tập này” hoặc dán nguyên đề vào ô chat.',
