@@ -3,14 +3,14 @@ import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
   batchHoursOf, deadlineMilestones, noticeDue,
-} from './model.js?v=83'
+} from './model.js?v=84'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=83'
-import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=83'
-import { esc, icon, logo } from './html.js?v=83'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=83'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=83'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=83'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=84'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=84'
+import { esc, icon, logo } from './html.js?v=84'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=84'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=84'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=84'
 
 const store = createStore()
 const NAV = [
