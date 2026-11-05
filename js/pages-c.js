@@ -2,9 +2,9 @@ import {
   DAY, WEEKDAYS, atTime, clock, dateISO, formatAgo, formatBytes, formatDM, formatDMY, formatHours, formatMonthTitle,
   formatSession, formatSpokenDate, formatSpan, formatWhen, sameDay, startOfDay, weekdayLabel, weekRange,
 } from './format.js'
-import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=87'
-import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=87'
-import { geminiKey } from './claude.js?v=87'
+import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=88'
+import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=88'
+import { geminiKey } from './claude.js?v=88'
 
 const HOUR = 64
 const START_H = 6
@@ -284,7 +284,7 @@ function inlineFmt(line) {
 }
 
 function bubble(msg) {
-  if (msg.role === 'user') return `<div class="bubble me">${esc(msg.text)}</div>`
+  if (msg.role === 'user') return `<div class="bubble user">${esc(msg.text)}</div>`
   const body = String(msg.suggestion || '').split('\n').map((line) => {
     const text = line.trim()
     if (!text) return ''
