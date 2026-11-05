@@ -1,6 +1,6 @@
 import { WEEKDAYS, clock, dateISO, formatAgo, formatBytes, formatDMY, formatHours, formatISO, formatSpan, formatSpokenDate, formatWhen, showDate, weekdayLabel } from './format.js'
-import { classOverlaps, completionTrend, courseWindowWarnings, leafTasks, parseOutput, sentenceCase, taskHours, taskStatus } from './model.js?v=74'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, logo, opts, pill, progress, swatch, wrapDate } from './html.js?v=74'
+import { classOverlaps, completionTrend, courseWindowWarnings, leafTasks, parseOutput, sentenceCase, taskHours, taskStatus } from './model.js?v=75'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, logo, opts, pill, progress, swatch, wrapDate } from './html.js?v=75'
 
 export function renderAuth(mode, auth, reset) {
   const hero = `<aside class="hero">
@@ -184,7 +184,7 @@ export function renderCourses(ctx) {
     <a href="#/mon-hoc" ${tab === 'mon' ? 'aria-current="page"' : ''}>Môn học</a>
     <a href="#/mon-hoc?tab=tailieu" ${tab === 'tailieu' ? 'aria-current="page"' : ''}>Tài liệu học tập</a>
   </div>`
-  const head = { title: 'Môn học', actions: '<a class="btn btn-primary" href="#/mon-hoc/moi">+ Thêm môn học</a>' }
+  const head = { title: 'Môn học', actions: '<a class="btn btn-primary" href="#/mon-hoc/moi">Thêm môn học</a>' }
   if (tab === 'tailieu') return { ...head, html: `${tabs}${docIndex(ctx)}` }
   return { ...head, html: `${tabs}${courseGrid(ctx)}` }
 }
@@ -201,9 +201,15 @@ function courseGrid(ctx) {
       <select class="select" data-live="query" data-key="sort">${opts([['az', 'Tên A–Z'], ['za', 'Tên Z–A']], sort)}</select>
     </div>
     ${items.length ? `<div class="cards">${items.map((course) => `<a class="card course" href="#/mon/${course.id}" style="--accent:${accent(course.color)}">
-      <div class="course-top"><strong>${esc(course.name)}</strong>${pill(course.status)}${course.status === 'studying' && !course.planCount ? '<span class="pill amber">Chưa có kế hoạch</span>' : ''}</div>
-      <p class="sub num">${formatISO(course.start)} – ${formatISO(course.end)}</p>
-      <div class="chip-wrap">${(course.schedule || []).map((slot) => `<span class="mini-chip">${weekdayLabel(slot.weekday)} ${esc(slot.start)}–${esc(slot.end)}</span>`).join('') || '<span class="muted">Chưa có lịch học</span>'}</div>
+      <div class="course-head">
+        <span class="course-badge" aria-hidden="true">${esc(initials(course.name))}</span>
+        <span class="course-title"><strong>${esc(course.name)}</strong><span class="course-dates num">${icon('calendar', 14)} ${formatISO(course.start)} – ${formatISO(course.end)}</span></span>
+        ${pill(course.status)}
+      </div>
+      <div class="course-foot">
+        ${(course.schedule || []).map((slot) => `<span class="slot-chip num">${icon('clock', 13)} ${weekdayLabel(slot.weekday)} · ${esc(slot.start)}–${esc(slot.end)}</span>`).join('') || '<span class="muted">Chưa có lịch học</span>'}
+        ${course.status === 'studying' && !course.planCount ? '<span class="pill amber">Chưa có kế hoạch</span>' : ''}
+      </div>
     </a>`).join('')}</div>` : empty('Chưa có môn học', 'Thêm môn để bắt đầu kế hoạch.', '<a class="btn btn-primary" href="#/mon-hoc/moi">Thêm môn học</a>')}`
 }
 
@@ -313,7 +319,10 @@ export function renderCourseForm(ctx) {
         ${editing ? impactBanners(ctx.data.plans.filter((plan) => plan.courseId === form.id), form, ctx) : ''}
         ${field('Ghi chú', `<textarea class="input" name="notes" rows="2">${esc(form.notes || '')}</textarea>`)}
         <p>Màu hiển thị</p>
-        <div class="color-row">${[0, 1, 2, 3, 4, 5].map((n) => `<button type="button" class="color-chip ${form.color === n ? 'on' : ''}" style="--accent:var(--c${n})" data-act="pick-color" data-color="${n}" aria-label="Màu ${n + 1}"></button>`).join('')}<label class="color-custom ${typeof form.color === 'string' ? 'on' : ''}" title="Màu tùy chỉnh"><input type="color" value="${esc(swatch(form.color))}" data-act="pick-custom" aria-label="Màu tùy chỉnh"></label></div>
+        <div class="color-row">
+          <label class="color-wheel" title="Chọn màu tùy chỉnh"><input type="color" value="${esc(swatch(form.color))}" data-act="pick-custom" aria-label="Chọn màu tùy chỉnh"><span class="color-wheel-plus" aria-hidden="true">${icon('plus', 14)}</span></label>
+          <span class="color-now"><i style="--accent:${accent(form.color)}"></i><span class="num">${esc(swatch(form.color).toUpperCase())}</span></span>
+        </div>
       </section>
       <section class="card pad">
         <div class="block-head"><h2>Lịch học cố định trên trường</h2><button class="btn btn-ghost" type="button" data-act="add-sch">+ Thêm buổi</button></div>

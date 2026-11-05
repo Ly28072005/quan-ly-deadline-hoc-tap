@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, parseStamp, showDate, showStamp } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=74'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=74'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=75'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=75'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -15,7 +15,7 @@ export function renderPlans(ctx) {
   items.sort((a, b) => ORDER[a.stats.status] - ORDER[b.stats.status] || a.deadline - b.deadline)
   return {
     title: 'Kế hoạch',
-    actions: `<a class="btn btn-ghost" href="#/ke-hoach/tao">+ Tạo kế hoạch</a><a class="btn btn-primary" href="#/ke-hoach/ai">${icon('sparkles', 16)} Tạo bằng AI</a>`,
+    actions: `<a class="btn btn-ghost" href="#/ke-hoach/tao">${icon('pencil', 16)} Tạo thủ công</a><a class="btn btn-primary" href="#/ke-hoach/ai">${icon('sparkles', 16)} Tạo bằng AI</a>`,
     html: `<section class="card pad">
       <div class="block-head"><h2>Danh sách kế hoạch</h2></div>
       <div class="tools-row">
@@ -29,23 +29,28 @@ export function renderPlans(ctx) {
 }
 
 function planRow(plan) {
-  return `<article class="plan-row">
-    <span class="status-orb ${plan.stats.status}">${orb(plan.stats.status)}</span>
+  const color = plan.course ? accent(plan.course.color) : 'var(--muted)'
+  const pct = Math.round((Number(plan.stats.ratio) || 0) * 100)
+  const leaves = leafTasks(plan.tasks)
+  const done = leaves.filter((task) => taskStatus(task) === 'done').length
+  const days = Math.ceil((plan.deadline - Date.now()) / 86400000)
+  const due = plan.stats.status === 'done' ? ''
+    : days < 0 ? '<span class="due bad">Đã quá hạn</span>'
+    : days === 0 ? '<span class="due warn">Hạn hôm nay</span>'
+    : `<span class="due${days <= 3 ? ' warn' : ''}">Còn ${days} ngày</span>`
+  return `<article class="plan-row" style="--accent:${color}">
+    <span class="course-badge" aria-hidden="true">${esc(plan.course ? initials(plan.course.name) : '–')}</span>
     <a class="plan-main" href="#/ke-hoach/${plan.id}">
       <strong>${esc(plan.name)}</strong>
-      <span class="meta">${plan.course ? `<span class="course-label" style="--accent:${accent(plan.course.color)}">${esc(plan.course.name)}</span>` : '<em>Không gắn môn</em>'} <span class="num">Hạn ${formatWhen(plan.deadline)}</span></span>
+      <span class="meta">${plan.course ? `<span class="plan-course">${esc(plan.course.name)}</span>` : '<em>Không gắn môn</em>'}<span class="meta-sep" aria-hidden="true">·</span><span class="num">Hạn ${formatWhen(plan.deadline)}</span>${due}</span>
     </a>
-    <span class="plan-meter">${progress(plan.stats.ratio, plan.stats.status === 'overdue')}</span>
+    <span class="plan-progress">
+      <span class="plan-progress-top"><span class="num">${done}/${leaves.length} nhiệm vụ</span><b class="num">${pct}%</b></span>
+      <span class="progress ${plan.stats.status === 'overdue' ? 'bad' : ''}"><i style="width:${pct}%"></i></span>
+    </span>
     ${pill(plan.stats.status)}
-    <button class="icon-btn" type="button" data-act="del-plan" data-id="${plan.id}" aria-label="Xóa kế hoạch">${icon('trash', 18)}</button>
+    <button class="icon-btn plan-del" type="button" data-act="del-plan" data-id="${plan.id}" aria-label="Xóa kế hoạch">${icon('trash', 18)}</button>
   </article>`
-}
-
-function orb(status) {
-  if (status === 'done') return icon('check', 16)
-  if (status === 'doing') return icon('clock', 16)
-  if (status === 'overdue') return icon('alert', 16)
-  return ''
 }
 
 export function renderPlanDetail(ctx) {

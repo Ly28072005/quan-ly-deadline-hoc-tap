@@ -1,5 +1,5 @@
 import { isoOf, parseTime, showDate } from './format.js'
-import { STATUS } from './model.js?v=74'
+import { STATUS } from './model.js?v=75'
 import { icon } from './icons.js'
 
 export { icon }
@@ -28,6 +28,14 @@ export function accent(color) {
 export function swatch(color) {
   if (typeof color === 'string' && /^#[0-9a-fA-F]{6}$/.test(color)) return color
   return SWATCH[Number(color)] || SWATCH[0]
+}
+
+// Two-letter course badge from the first two words: "Business Analyst" → "BA", "Cơ sở dữ liệu" → "CS", "UX/UI" → "UX"
+export function initials(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean)
+  if (words.length > 1) return (words[0][0] + words[1][0]).toUpperCase()
+  const letters = (words[0] || '?').replace(/[^\p{L}\p{N}]/gu, '')
+  return (letters.slice(0, 2) || '?').toUpperCase()
 }
 
 export function dot(color) {

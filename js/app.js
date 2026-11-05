@@ -2,14 +2,14 @@ import { createStore } from './store.js'
 import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
-} from './model.js?v=74'
+} from './model.js?v=75'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=74'
-import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=74'
-import { esc, icon, logo } from './html.js?v=74'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=74'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=74'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=74'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=75'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=75'
+import { esc, icon, logo } from './html.js?v=75'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=75'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=75'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=75'
 
 const store = createStore()
 const NAV = [
@@ -143,7 +143,9 @@ function renderToasts() {
 }
 
 function blankCourse() {
-  return { id: '', name: '', start: '', end: '', output: '', goal: '', notes: '', color: 0, schedule: [], errors: {} }
+  // Each new course starts on the next palette color; the custom picker can change it.
+  const color = (store.snapshot()?.courses?.length || 0) % 6
+  return { id: '', name: '', start: '', end: '', output: '', goal: '', notes: '', color, schedule: [], errors: {} }
 }
 function blankAi(data) {
   const studying = data.courses.filter((course) => course.end && atTime(course.end, '23:59') >= Date.now())
@@ -922,7 +924,6 @@ function onClick(event) {
   if (act === 'range') setQuery({ range: node.dataset.value })
   if (act === 'open-date') openDate(node)
   if (act === 'open-time') openTime(node)
-  if (act === 'pick-color') { form.color = Number(node.dataset.color); render() }
   if (act === 'add-sch') { form.schedule.push({ weekday: 2, start: '07:00', end: '09:30', room: '', from: '', until: '', repeat: 'week' }); refreshScheduleError(); render() }
   if (act === 'del-sch') { form.schedule.splice(Number(node.dataset.id), 1); refreshScheduleError(); render() }
   if (act === 'del-course') confirmDelete('Xóa môn học', 'Môn, tài liệu và kế hoạch của môn sẽ bị xóa.', () => {
