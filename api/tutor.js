@@ -6,7 +6,7 @@ const MODELS = [
 
 function cors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
-  res.setHeader('Access-Control-Allow-Headers', 'content-type, x-anthropic-key')
+  res.setHeader('Access-Control-Allow-Headers', 'content-type, x-anthropic-key, x-gemini-key')
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
 }
 
@@ -16,12 +16,12 @@ function clip(value, max) {
 }
 
 function systemPrompt() {
-  return `Bạn là Claude trong ứng dụng Studyflow, trợ lý học tập cho sinh viên Việt Nam. Trả lời tiếng Việt, cụ thể, giống khi sinh viên gửi đề hoặc hỏi trên claude.ai.
+  return `Bạn là trợ lý AI trong ứng dụng Studyflow, trợ lý học tập cho sinh viên Việt Nam. Trả lời tiếng Việt, cụ thể, giống khi sinh viên hỏi trên ChatGPT, Gemini hay Claude. Nếu câu hỏi không liên quan bài học, cứ trả lời tự nhiên như một trợ lý trò chuyện bình thường.
 
 Cách làm:
 - Đọc kỹ câu hỏi, đề bài, ảnh/PDF đính kèm, và tài liệu môn nếu có.
 - Ưu tiên tài liệu môn khi nó đủ để trả lời đúng.
-- Nếu tài liệu thiếu, không có, hoặc không khớp đề: hãy dùng web_search để tìm giáo trình, ví dụ, công thức, bài giải mẫu, rồi trả lời đầy đủ từ kiến thức của bạn và nguồn vừa tìm. Không dừng lại chỉ vì “không có trong tài liệu”.
+- Nếu tài liệu thiếu, không có, hoặc không khớp đề: hãy tìm trên web để tìm giáo trình, ví dụ, công thức, bài giải mẫu, rồi trả lời đầy đủ từ kiến thức của bạn và nguồn vừa tìm. Không dừng lại chỉ vì “không có trong tài liệu”.
 - Khi giải bài: nêu hiểu đề, kiến thức cần dùng, các bước, bài làm/đáp án, giải thích vì sao đúng. Có thể viết đoạn mẫu để sinh viên viết lại.
 - Khi đọc ảnh đề: đọc chữ trong ảnh rồi giải.
 - Dẫn nguồn (tên tài liệu môn hoặc URL) khi dùng. Không bịa nguồn.
@@ -59,7 +59,7 @@ function userText(body) {
     })
   }
   parts.push(`Câu hỏi của sinh viên:\n${clip(body.question, 8000)}`)
-  parts.push('Hãy giải hoặc trả lời đầy đủ. Tìm web nếu tài liệu môn chưa đủ.')
+  parts.push('Hãy trả lời đầy đủ. Tìm web nếu cần thông tin mới hoặc tài liệu môn chưa đủ.')
   return parts.filter(Boolean).join('\n\n')
 }
 
@@ -173,28 +173,101 @@ function errorOf(status, json) {
   return msg || `Claude trả lỗi ${status}.`
 }
 
-module.exports = async function handler(req, res) {
-  cors(res)
-  if (req.method === 'OPTIONS') return res.status(204).end()
-  const envKey = process.env.ANTHROPIC_API_KEY || ''
-  if (req.method === 'GET') return res.status(200).json({ live: Boolean(envKey) })
-  if (req.method !== 'POST') return res.status(405).json({ error: 'method' })
+const GEMINI_MODELS = [
+  'gemini-flash-latest',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+]
 
-  const headerKey = String(req.headers['x-anthropic-key'] || '').trim()
-  const apiKey = envKey || headerKey
-  if (!apiKey) {
-    return res.status(501).json({
-      error: 'no_key',
-      text: 'Chưa có khóa Claude. Dán khóa Anthropic (sk-ant-…) trong Cài đặt, hoặc thêm ANTHROPIC_API_KEY trên Vercel.',
-    })
+function geminiContents(payload) {
+  const contents = []
+  const push = (role, part) => {
+    const last = contents[contents.length - 1]
+    if (last && last.role === role) last.parts.push(part)
+    else contents.push({ role, parts: [part] })
   }
-
-  const payload = req.body && typeof req.body === 'object' ? req.body : {}
-  if (!String(payload.question || '').trim()) {
-    return res.status(400).json({ error: 'missing', text: 'Thiếu câu hỏi.' })
+  for (const row of historyOf(payload)) {
+    push(row.role === 'assistant' ? 'model' : 'user', { text: row.content })
   }
+  for (const block of attachments(payload)) {
+    push('user', { inline_data: { mime_type: block.source.media_type, data: block.source.data } })
+  }
+  push('user', { text: userText(payload) })
+  while (contents.length && contents[0].role === 'model') contents.shift()
+  return contents
+}
 
+function geminiReply(json) {
+  const candidate = json?.candidates?.[0]
+  const parts = candidate?.content?.parts || []
+  let text = parts.filter((part) => part.text && !part.thought).map((part) => part.text).join('').trim()
+  const sources = []
+  for (const chunk of candidate?.groundingMetadata?.groundingChunks || []) {
+    const url = chunk.web?.uri
+    if (url && !sources.some((item) => item.url === url)) sources.push({ title: chunk.web.title || url, url })
+  }
+  if (text && sources.length && !/https?:\/\//.test(text.slice(-800))) {
+    text += `\n\n**Nguồn**\n${sources.slice(0, 6).map((item) => `- ${item.title}: ${item.url}`).join('\n')}`
+  }
+  return { text, sources, searched: sources.length > 0 }
+}
+
+async function callGemini(apiKey, model, payload, useSearch) {
+  const body = {
+    systemInstruction: { parts: [{ text: systemPrompt() }] },
+    contents: geminiContents(payload),
+    generationConfig: { maxOutputTokens: 8192 },
+  }
+  if (useSearch) body.tools = [{ google_search: {} }]
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    method: 'POST',
+    headers: { 'x-goog-api-key': apiKey, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const json = await response.json().catch(() => ({}))
+  return { ok: response.ok, status: response.status, json }
+}
+
+function geminiError(status, json) {
+  const msg = String(json?.error?.message || '')
+  const reason = JSON.stringify(json?.error?.details || '')
+  if (/API_KEY_INVALID|API key not valid/i.test(msg + reason)) return 'Khóa Gemini không hợp lệ. Lấy lại khóa tại aistudio.google.com/apikey rồi dán vào Cài đặt.'
+  if (status === 429) return 'Gemini đã chạm giới hạn miễn phí (số lượt mỗi phút hoặc mỗi ngày). Đợi khoảng 1 phút rồi hỏi lại.'
+  if (status === 403) return 'Khóa Gemini chưa được phép gọi API. Kiểm tra lại khóa trên aistudio.google.com.'
+  return msg || `Gemini trả lỗi ${status}.`
+}
+
+async function askGemini(apiKey, payload) {
   let lastError = ''
+  let lastStatus = 502
+  for (const model of GEMINI_MODELS) {
+    for (const useSearch of [true, false]) {
+      try {
+        const result = await callGemini(apiKey, model, payload, useSearch)
+        if (result.ok) {
+          const reply = geminiReply(result.json)
+          if (reply.text) return { ok: true, ...reply, model, provider: 'gemini' }
+          const blocked = result.json?.promptFeedback?.blockReason || result.json?.candidates?.[0]?.finishReason
+          lastError = blocked ? `Gemini không trả lời câu này (${blocked}).` : 'Gemini chưa trả lời được.'
+          continue
+        }
+        lastError = geminiError(result.status, result.json)
+        lastStatus = result.status
+        if (result.status === 401 || result.status === 403 || /không hợp lệ/.test(lastError)) {
+          return { ok: false, status: result.status, text: lastError }
+        }
+        if (result.status === 404) break
+      } catch (error) {
+        lastError = error.message || 'network'
+      }
+    }
+  }
+  return { ok: false, status: lastStatus, text: lastError || 'Không gọi được Gemini.' }
+}
+
+async function askAnthropic(apiKey, payload) {
+  let lastError = ''
+  let lastStatus = 502
   for (const model of MODELS) {
     let useSearch = true
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -202,14 +275,7 @@ module.exports = async function handler(req, res) {
         const result = await callClaude(apiKey, model, payload, useSearch)
         if (result.ok && result.json?.content) {
           const reply = extractReply(result.json.content)
-          if (reply.text) {
-            return res.status(200).json({
-              text: reply.text,
-              sources: reply.sources,
-              searched: reply.searched,
-              model,
-            })
-          }
+          if (reply.text) return { ok: true, ...reply, model, provider: 'claude' }
         }
         const code = errorOf(result.status, result.json)
         if ((code === 'search_disabled' || (result.status === 400 && /tool|web_search/i.test(code))) && useSearch) {
@@ -218,25 +284,66 @@ module.exports = async function handler(req, res) {
         }
         if (code === 'model') break
         lastError = code
-        if (result.status === 401) {
-          return res.status(401).json({ error: 'claude', text: lastError })
-        }
+        lastStatus = result.status
+        if (result.status === 401) return { ok: false, status: 401, text: lastError }
         if (result.status === 400 && useSearch) {
           useSearch = false
           continue
         }
-        if (result.status === 400) {
-          return res.status(400).json({ error: 'claude', text: lastError })
-        }
+        if (result.status === 400) return { ok: false, status: 400, text: lastError }
       } catch (error) {
         lastError = error.message || 'network'
       }
     }
   }
-  return res.status(502).json({
-    error: 'claude',
-    text: lastError || 'Không gọi được Claude. Thử lại hoặc kiểm tra khóa API.',
+  return { ok: false, status: lastStatus, text: lastError || 'Không gọi được Claude. Thử lại hoặc kiểm tra khóa API.' }
+}
+
+module.exports = async function handler(req, res) {
+  cors(res)
+  if (req.method === 'OPTIONS') return res.status(204).end()
+  const envKey = process.env.ANTHROPIC_API_KEY || ''
+  const envGemini = process.env.GEMINI_API_KEY || ''
+  if (req.method === 'GET') return res.status(200).json({ live: Boolean(envKey || envGemini) })
+  if (req.method !== 'POST') return res.status(405).json({ error: 'method' })
+
+  const claudeKey = envKey || String(req.headers['x-anthropic-key'] || '').trim()
+  const geminiKey = envGemini || String(req.headers['x-gemini-key'] || '').trim()
+  if (!claudeKey && !geminiKey) {
+    return res.status(501).json({
+      error: 'no_key',
+      text: 'Chưa có khóa AI. Dán khóa Gemini miễn phí (aistudio.google.com/apikey) hoặc khóa Anthropic trong Cài đặt.',
+    })
+  }
+
+  const payload = req.body && typeof req.body === 'object' ? req.body : {}
+  if (!String(payload.question || '').trim()) {
+    return res.status(400).json({ error: 'missing', text: 'Thiếu câu hỏi.' })
+  }
+
+  const send = (reply) => res.status(200).json({
+    text: reply.text,
+    sources: reply.sources,
+    searched: reply.searched,
+    model: reply.model,
+    provider: reply.provider,
   })
+  const fail = (reply, error) => res.status(reply.status >= 400 ? reply.status : 502).json({ error, text: reply.text })
+
+  // Gemini first when the user has a free key; Claude stays as backup.
+  let geminiFail = null
+  if (geminiKey) {
+    const reply = await askGemini(geminiKey, payload)
+    if (reply.ok) return send(reply)
+    geminiFail = reply
+  }
+  if (claudeKey) {
+    const reply = await askAnthropic(claudeKey, payload)
+    if (reply.ok) return send(reply)
+    if (geminiFail) return fail({ ...geminiFail, text: `${geminiFail.text}\n\n(Claude dự phòng cũng chưa dùng được.)` }, 'gemini')
+    return fail(reply, 'claude')
+  }
+  return fail(geminiFail, 'gemini')
 }
 
 module.exports.config = { maxDuration: 60 }

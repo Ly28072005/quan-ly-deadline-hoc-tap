@@ -1,15 +1,27 @@
 const KEY = 'sf-claude-key'
+const GEMINI_KEY = 'sf-gemini-key'
 
-export function claudeKey() {
-  try { return localStorage.getItem(KEY) || '' } catch { return '' }
+function readKey(name) {
+  try { return localStorage.getItem(name) || '' } catch { return '' }
 }
 
-export function setClaudeKey(value) {
+function writeKey(name, value) {
   const key = String(value || '').trim()
   try {
-    if (key) localStorage.setItem(KEY, key)
-    else localStorage.removeItem(KEY)
+    if (key) localStorage.setItem(name, key)
+    else localStorage.removeItem(name)
   } catch { /* ignore */ }
+}
+
+export function claudeKey() { return readKey(KEY) }
+export function setClaudeKey(value) { writeKey(KEY, value) }
+export function geminiKey() { return readKey(GEMINI_KEY) }
+export function setGeminiKey(value) { writeKey(GEMINI_KEY, value) }
+
+// Name shown on the chat badge: Gemini is tried first when both keys exist.
+export function aiName() {
+  if (geminiKey()) return claudeKey() ? 'Gemini + Claude' : 'Gemini'
+  return 'Claude'
 }
 
 export function tutorUrl() {
@@ -29,7 +41,7 @@ export async function probeClaude() {
 }
 
 export function claudeReady(serverLive) {
-  return Boolean(serverLive || claudeKey())
+  return Boolean(serverLive || claudeKey() || geminiKey())
 }
 
 async function blobToBase64(blob) {
@@ -116,6 +128,8 @@ export async function askClaude(payload) {
   const headers = { 'content-type': 'application/json' }
   const key = claudeKey()
   if (key) headers['x-anthropic-key'] = key
+  const gemini = geminiKey()
+  if (gemini) headers['x-gemini-key'] = gemini
   const res = await fetch(tutorUrl(), {
     method: 'POST',
     headers,
@@ -131,5 +145,6 @@ export async function askClaude(payload) {
     text: json.text,
     searched: !!json.searched,
     sources: json.sources || [],
+    provider: json.provider === 'gemini' ? 'Gemini' : 'Claude',
   }
 }

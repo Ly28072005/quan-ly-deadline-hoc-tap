@@ -2,14 +2,14 @@ import { createStore } from './store.js'
 import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
-} from './model.js?v=70'
+} from './model.js?v=71'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=70'
-import { askClaude, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, probeClaude, setClaudeKey } from './claude.js?v=70'
-import { esc, icon, logo } from './html.js?v=70'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=70'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=70'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=70'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=71'
+import { aiName, askClaude, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, geminiKey, probeClaude, setClaudeKey, setGeminiKey } from './claude.js?v=71'
+import { esc, icon, logo } from './html.js?v=71'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=71'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=71'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=71'
 
 const store = createStore()
 const NAV = [
@@ -225,6 +225,7 @@ function context() {
     form, ai, manual, slotDay, cal, narrow: narrowQuery.matches,
     source: data.settings.aiAck && claudeReady(aiLive) ? 'claude' : 'sim',
     claudeOn: claudeReady(aiLive),
+    aiName: aiName(),
     chatBusy,
     taskBack,
   }
@@ -439,7 +440,8 @@ async function onSubmit(event) {
   else if (act === 'send') sendChat(formEl.dataset.scope, fields.text)
   else if (act === 'save-claude') {
     setClaudeKey(fields.key)
-    toast(fields.key?.trim() ? 'Đã lưu khóa Claude' : 'Đã xóa khóa Claude')
+    setGeminiKey(fields.gemini)
+    toast(fields.key?.trim() || fields.gemini?.trim() ? 'Đã lưu khóa AI' : 'Đã xóa khóa AI')
     render()
   }
 }
@@ -693,8 +695,8 @@ function sendChat(scope, text) {
   if (!claudeReady(aiLive)) {
     pendingAsk = `${scope}\n${clean}`
     modal = {
-      title: 'Kết nối Claude',
-      body: 'Claude đọc đề, tài liệu môn, rồi tìm trên web nếu tài liệu chưa đủ — giống lúc bạn gửi bài trên claude.ai.',
+      title: 'Kết nối trợ lý AI',
+      body: 'Trợ lý đọc đề, tài liệu môn, rồi tìm trên web nếu cần — giống lúc bạn hỏi ChatGPT hay Gemini.',
       extra: claudeKeyField(),
       ok: 'Lưu và hỏi', cancel: 'Để sau', danger: false,
       run: (key) => {
@@ -705,7 +707,7 @@ function sendChat(scope, text) {
         if (claudeReady(aiLive) && packed) {
           const split = packed.indexOf('\n')
           sendChat(packed.slice(0, split), packed.slice(split + 1))
-        } else toast('Cần khóa Anthropic (sk-ant-…) để Claude giải bài.')
+        } else toast('Cần khóa Gemini (miễn phí) hoặc khóa Anthropic để trợ lý trả lời.')
       },
     }
     render()
@@ -776,21 +778,21 @@ async function finishChat(scope, clean, taskId) {
         ? [{ label: 'Mở tài liệu môn', hash: `#/tai-lieu/${found.plan.courseId}` }]
         : found ? [{ label: 'Xem kế hoạch', hash: `#/ke-hoach/${found.plan.id}` }] : []
       reply = {
-        from: live.searched ? 'Claude · đã tìm thêm nguồn trên web' : 'Claude',
+        from: live.searched ? `${live.provider} · đã tìm thêm nguồn trên web` : live.provider,
         suggestion: live.text,
         actions,
       }
     } else {
       reply = {
-        from: 'Chưa gọi được Claude',
-        suggestion: claudeErrorText(live.text) || 'Dán khóa Anthropic (sk-ant-…) trong Cài đặt thông báo, mục Trợ lý Claude, rồi hỏi lại.',
+        from: `Chưa gọi được ${aiName()}`,
+        suggestion: claudeErrorText(live.text) || 'Dán khóa Gemini (miễn phí) hoặc khóa Anthropic trong Cài đặt thông báo, mục Trợ lý AI, rồi hỏi lại.',
         actions: [{ label: 'Mở cài đặt', hash: '#/thong-bao/cai-dat' }],
       }
     }
   } catch {
     reply = {
-      from: 'Mất kết nối Claude',
-      suggestion: 'Kiểm tra mạng rồi hỏi lại. Nếu chưa có khóa, dán khóa Anthropic trong Cài đặt.',
+      from: `Mất kết nối ${aiName()}`,
+      suggestion: 'Kiểm tra mạng rồi hỏi lại. Nếu chưa có khóa, dán khóa Gemini hoặc Anthropic trong Cài đặt.',
       actions: [{ label: 'Mở cài đặt', hash: '#/thong-bao/cai-dat' }],
     }
   }
@@ -804,21 +806,21 @@ async function finishChat(scope, clean, taskId) {
 
 function claudeErrorText(text) {
   const raw = String(text || '')
-  if (/credit balance is too low/i.test(raw)) return 'Khóa Claude đã kết nối đúng, nhưng tài khoản Anthropic hết credit nên Claude từ chối trả lời. Vào console.anthropic.com → Plans & Billing để nạp credit, rồi hỏi lại. Trong lúc đó Studyflow dùng chế độ mô phỏng.'
+  if (/credit balance is too low/i.test(raw)) return 'Khóa Claude đã kết nối đúng, nhưng tài khoản Anthropic hết credit nên Claude từ chối trả lời. Cách miễn phí: lấy khóa Gemini tại aistudio.google.com/apikey rồi dán vào Cài đặt, mục Trợ lý AI. Hoặc nạp credit trên console.anthropic.com.'
   if (/invalid x-api-key|authentication_error/i.test(raw)) return 'Khóa Anthropic không hợp lệ hoặc đã bị thu hồi. Hãy tạo khóa mới trên console.anthropic.com rồi dán lại trong Cài đặt.'
   if (/rate limit|overloaded/i.test(raw)) return 'Claude đang quá tải hoặc vượt giới hạn tốc độ. Đợi vài giây rồi hỏi lại.'
   return raw
 }
 
 function claudeKeyField() {
-  return `<label class="field claude-key"><span>Khóa Anthropic</span><input class="input" name="claude-key" type="password" autocomplete="off" placeholder="sk-ant-…" value="${esc(claudeKey())}"></label><p class="fine">Lấy khóa tại console.anthropic.com. Claude đọc đề, tài liệu môn, và tìm web khi tài liệu chưa đủ.</p>`
+  return `<label class="field claude-key"><span>Khóa Gemini (miễn phí)</span><input class="input" name="gemini-key" type="password" autocomplete="off" placeholder="AIza…" value="${esc(geminiKey())}"></label><p class="fine">Lấy miễn phí tại aistudio.google.com/apikey (đăng nhập Google → Create API key).</p><label class="field claude-key"><span>Khóa Anthropic (tùy chọn, trả phí)</span><input class="input" name="claude-key" type="password" autocomplete="off" placeholder="sk-ant-…" value="${esc(claudeKey())}"></label>`
 }
 
 function openAi(prefill) {
   if (!store.snapshot().settings.aiAck) {
     modal = {
       title: 'Cho phép trợ lý AI',
-      body: 'Studyflow gọi Claude để đọc đề, tài liệu môn và tìm nguồn trên web khi tài liệu chưa đủ — giống lúc bạn gửi bài trên claude.ai.',
+      body: 'Studyflow gọi Gemini hoặc Claude để trả lời, đọc đề, tài liệu môn và tìm nguồn trên web — giống lúc bạn hỏi ChatGPT hay Gemini.',
       extra: claudeReady(aiLive) ? '' : claudeKeyField(),
       ok: 'Cho phép', cancel: 'Để sau', danger: false,
       run: (key) => {
@@ -833,14 +835,14 @@ function openAi(prefill) {
   }
   if (!claudeReady(aiLive)) {
     modal = {
-      title: 'Kết nối Claude',
-      body: 'Để Claude giải bài và tìm trên web, dán khóa Anthropic. Tài liệu môn vẫn được đọc trước.',
+      title: 'Kết nối trợ lý AI',
+      body: 'Dán khóa Gemini (miễn phí) để trợ lý trả lời và tìm trên web. Tài liệu môn vẫn được đọc trước.',
       extra: claudeKeyField(),
       ok: 'Lưu và hỏi', cancel: 'Để sau', danger: false,
       run: (key) => {
         if (key) setClaudeKey(key)
         drawer = true
-        if (prefill && claudeKey()) sendChat('ai', prefill)
+        if (prefill && claudeReady(aiLive)) sendChat('ai', prefill)
       },
     }
     render()
@@ -888,6 +890,8 @@ function onClick(event) {
   if (act === 'modal-no') { modal = null; render() }
   if (act === 'modal-yes') {
     const typedKey = document.querySelector('[name="claude-key"]')?.value?.trim() || ''
+    const typedGemini = document.querySelector('[name="gemini-key"]')
+    if (typedGemini) setGeminiKey(typedGemini.value)
     const run = modal?.run
     modal = null
     if (run) run(typedKey)
