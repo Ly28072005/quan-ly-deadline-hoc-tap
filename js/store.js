@@ -1,6 +1,6 @@
 import {
   alignPlansToOutput, createDemo, defaultSettings, desiredNotices, emptyData, fileType, mergeNotices, SNOOZE_LIMIT, unreadCount, welcomeMessage,
-} from './model.js?v=84'
+} from './model.js?v=85'
 import { atTime, isoOf, uid } from './format.js'
 
 const ACCOUNTS = 'sf-accounts-v1'

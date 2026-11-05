@@ -188,9 +188,11 @@ textarea.input { height: auto; }
 .check.color input:checked { background-color: var(--accent); border-color: var(--accent); }
 .check span { display: none; }
 .input-ico { position: relative; display: block; }
-.input-ico .ico { position: absolute; left: 12px; top: 12px; color: var(--muted); }
+.input-ico > .ico { position: absolute; left: 12px; top: 12px; color: var(--muted); }
 .input-ico .input { padding-left: 38px; }
-.eye { position: absolute; right: 8px; top: 6px; border: 0; background: transparent; color: var(--muted); cursor: pointer; }
+.eye { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); width: 32px; height: 32px; display: grid; place-items: center; padding: 0; border: 0; border-radius: 8px; background: transparent; color: var(--muted); cursor: pointer; }
+.eye:hover { background: var(--surface-2); color: var(--ink); }
+.input-ico .input[type="password"], .input-ico .input[name="password"] { padding-right: 44px; }
 
 .pill { display: inline-flex; align-items: center; gap: 4px; height: 24px; border-radius: 999px; padding: 0 9px; font-size: 12px; font-weight: 600; border: 0; background: var(--surface-2); color: var(--muted); white-space: nowrap; }
 .pill .ico { width: 12px; height: 12px; }

@@ -1,6 +1,6 @@
 import { WEEKDAYS, clock, dateISO, formatAgo, formatBytes, formatDMY, formatHours, formatISO, formatSpan, formatSpokenDate, formatWhen, showDate, weekdayLabel } from './format.js'
-import { classOverlaps, completionTrend, courseWindowWarnings, leafTasks, parseOutput, sentenceCase, taskHours, taskStatus } from './model.js?v=84'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, logo, opts, pill, progress, swatch, wrapDate } from './html.js?v=84'
+import { classOverlaps, completionTrend, courseWindowWarnings, leafTasks, parseOutput, sentenceCase, taskHours, taskStatus } from './model.js?v=85'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, logo, opts, pill, progress, swatch, wrapDate } from './html.js?v=85'
 
 export function renderAuth(mode, auth, reset) {
   const hero = `<aside class="hero">
@@ -22,7 +22,6 @@ function loginForm(auth) {
   const e = auth.errors || {}
   return `<form class="auth-form" data-act="login">
     <h1>Đăng nhập</h1>
-    <p class="sub">Tiếp tục với lịch học của bạn.</p>
     ${field('Email', `<span class="input-ico">${icon('mail', 18)}<input class="input ${e.email ? 'bad' : ''}" name="email" type="email" value="${esc(auth.email || '')}" autocomplete="username"></span>`, e.email)}
     ${field('Mật khẩu', `<span class="input-ico">${icon('lock', 18)}<input class="input ${e.password ? 'bad' : ''}" name="password" type="password" autocomplete="current-password"><button class="eye" type="button" data-act="toggle-pass" aria-label="Hiện mật khẩu">${icon('eye', 18)}</button></span>`, e.password)}
     <div class="row-between">

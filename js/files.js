@@ -44,7 +44,7 @@ export async function removeBlob(id) {
   db.close()
 }
 
-export { extractFileText } from './extract.js?v=84'
+export { extractFileText } from './extract.js?v=85'
 
 export function fileKind(name, mime) {
   const ext = String(name || '').split('.').pop().toLowerCase()
