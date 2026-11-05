@@ -1,15 +1,15 @@
 import { createStore } from './store.js'
 import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
-  alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual,
-} from './model.js?v=68'
+  alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
+} from './model.js?v=70'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=68'
-import { askClaude, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, probeClaude, setClaudeKey } from './claude.js?v=68'
-import { esc, icon, logo } from './html.js?v=68'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=68'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=68'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=68'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=70'
+import { askClaude, blobToJpeg, blobToPdf, buildTutorPayload, claudeKey, claudeReady, probeClaude, setClaudeKey } from './claude.js?v=70'
+import { esc, icon, logo } from './html.js?v=70'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=70'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=70'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=70'
 
 const store = createStore()
 const NAV = [
@@ -599,13 +599,15 @@ function queueSuggest() {
     ai.deadline = deadline
     ai.displaced = made.displaced || 0
     ai.step = 3
+    const fixed = autoResolveAi()
     render()
+    if (fixed) toast(`AI đã tự chuyển ${fixed} nhiệm vụ bị trùng lịch sang khung trống gần nhất.`)
   }, 1100)
 }
 
 function confirmAi() {
   commitTypingHours(false)
-  const review = reviewTasks(ai.tasks, store.snapshot(), ai.deadline, ai.planId)
+  const review = reviewTasks(ai.tasks, aiData(), ai.deadline, ai.planId)
   if (review.bad) { render(); return }
   if (ai.deadline > Date.now() && review.open < 0.5) {
     toast('Giờ rảnh đến hạn kế hoạch đã được xếp hết nhiệm vụ. Hãy bổ sung thời gian rảnh.')
@@ -619,7 +621,7 @@ function confirmAi() {
     tasks: ai.tasks,
   }
   store.savePlan(built)
-  const moved = ai.dirtyTimes ? [] : reflowAll(store.snapshot())
+  const moved = ai.dirtyTimes ? reseatLater(store.snapshot(), ai.deadline) : reflowAll(store.snapshot())
   for (const plan of moved) store.savePlan(plan)
   const count = leafTasks(built.tasks).length
   aiKey = ''
@@ -781,7 +783,7 @@ async function finishChat(scope, clean, taskId) {
     } else {
       reply = {
         from: 'Chưa gọi được Claude',
-        suggestion: live.text || 'Dán khóa Anthropic (sk-ant-…) trong Cài đặt thông báo, mục Trợ lý Claude, rồi hỏi lại.',
+        suggestion: claudeErrorText(live.text) || 'Dán khóa Anthropic (sk-ant-…) trong Cài đặt thông báo, mục Trợ lý Claude, rồi hỏi lại.',
         actions: [{ label: 'Mở cài đặt', hash: '#/thong-bao/cai-dat' }],
       }
     }
@@ -798,6 +800,14 @@ async function finishChat(scope, clean, taskId) {
   else store.pushAssistant(message)
   chatBusy = ''
   render()
+}
+
+function claudeErrorText(text) {
+  const raw = String(text || '')
+  if (/credit balance is too low/i.test(raw)) return 'Khóa Claude đã kết nối đúng, nhưng tài khoản Anthropic hết credit nên Claude từ chối trả lời. Vào console.anthropic.com → Plans & Billing để nạp credit, rồi hỏi lại. Trong lúc đó Studyflow dùng chế độ mô phỏng.'
+  if (/invalid x-api-key|authentication_error/i.test(raw)) return 'Khóa Anthropic không hợp lệ hoặc đã bị thu hồi. Hãy tạo khóa mới trên console.anthropic.com rồi dán lại trong Cài đặt.'
+  if (/rate limit|overloaded/i.test(raw)) return 'Claude đang quá tải hoặc vượt giới hạn tốc độ. Đợi vài giây rồi hỏi lại.'
+  return raw
 }
 
 function claudeKeyField() {
@@ -1064,6 +1074,30 @@ function moveTask(id) {
   toast('Đã dời nhiệm vụ', { label: 'Hoàn tác', run: () => { store.updateTask(id, prev); render() } })
 }
 
+function aiData() {
+  const data = store.snapshot()
+  const course = data.courses.find((item) => item.id === ai?.courseId)
+  const floor = course?.start ? atTime(course.start, '00:00') : 0
+  return { ...data, floor, displaceAfter: ai?.deadline || 0 }
+}
+
+// AI tu xep cac nhiem vu dang trung lich (voi mon khong the dich chuyen / lich hoc) sang khung trong gan nhat
+function autoResolveAi() {
+  if (!ai?.tasks?.length) return 0
+  let moved = 0
+  for (let round = 0; round < 60; round += 1) {
+    const data = aiData()
+    const review = reviewTasks(ai.tasks, data, ai.deadline, ai.planId)
+    const row = review.rows.find((item) => item.warnings.some((w) => w.code === 'overlap-foreign' || w.code === 'class'))
+    if (!row) break
+    const fix = proposeFix(row.task, ai.tasks, data, ai.deadline, ai.planId)
+    if (!fix?.start || fix.kind === 'free') { row.task.needFree = taskHours(row.task); break }
+    ai.tasks = placeTaskWindow(ai.tasks, row.task.id, fix.start, fix.end, data, ai.deadline, ai.planId)
+    moved += 1
+  }
+  return moved
+}
+
 function applyAiFix(id, startRaw, endRaw) {
   window.clearTimeout(hoursInputTimer)
   if (ai) ai.typingHours = null
@@ -1072,7 +1106,7 @@ function applyAiFix(id, startRaw, endRaw) {
   let start = Number(startRaw)
   let end = Number(endRaw)
   if (!(start > 0 && end > start)) {
-    const fix = proposeFix(task, ai.tasks, store.snapshot(), ai.deadline, ai.planId)
+    const fix = proposeFix(task, ai.tasks, aiData(), ai.deadline, ai.planId)
     if (!fix?.start || fix.kind === 'free') {
       task.needFree = taskHours(task)
       render()
@@ -1083,7 +1117,7 @@ function applyAiFix(id, startRaw, endRaw) {
   }
   task.needFree = 0
   ai.dirtyTimes = true
-  ai.tasks = placeTaskWindow(ai.tasks, id, start, end, store.snapshot(), ai.deadline, ai.planId)
+  ai.tasks = placeTaskWindow(ai.tasks, id, start, end, aiData(), ai.deadline, ai.planId)
   render()
   toast('Đã xếp vào khung trống gần nhất')
 }
@@ -1247,11 +1281,19 @@ function applyAiHours(taskId, hours, fromUser = true, keepTyping = false, should
     if (shouldRender) render()
     return
   }
-  const result = applyHoursChange(ai.tasks, task.id, hours, store.snapshot(), ai.deadline, ai.planId)
-  const updated = result.tasks.find((item) => item.id === taskId)
+  const data = aiData()
+  const result = applyHoursChange(ai.tasks, task.id, hours, data, ai.deadline, ai.planId)
+  let next = result.tasks
+  let autoMoved = null
+  if (result.kind === 'need-slot' && result.window) {
+    next = placeTaskWindow(next, task.id, result.window.start, result.window.end, data, ai.deadline, ai.planId)
+    autoMoved = result.window
+  }
+  const updated = next.find((item) => item.id === taskId)
   if (updated) updated.userAdjustedHours = fromUser
-  ai.tasks = result.tasks
+  ai.tasks = next
   if (shouldRender) render()
+  if (autoMoved) toast(`Khung cũ trùng lịch môn khác — AI đã tự chuyển sang ${dateISO(autoMoved.start).split('-').reverse().join('/')} ${clock(autoMoved.start)}–${clock(autoMoved.end)}.`)
 }
 
 function patchAi(node) {
@@ -1270,7 +1312,7 @@ function patchAi(node) {
       task.needFree = 0
       return
     }
-    const result = applyHoursChange(ai.tasks, task.id, hours, store.snapshot(), ai.deadline, ai.planId)
+    const result = applyHoursChange(ai.tasks, task.id, hours, aiData(), ai.deadline, ai.planId)
     const updated = result.tasks.find((item) => item.id === task.id)
     if (updated) updated.userAdjustedHours = true
     ai.tasks = result.tasks

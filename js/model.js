@@ -3,7 +3,7 @@
   formatISO, formatSpan, formatWhen, isoOf, minutes, pad, parseDate, roundUp30, startOfDay, uid, weekdayMon,
 } from './format.js'
 import { composeTutor } from './tutor.js'
-import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=68'
+import { estimateWorkload, parseWorkload, roundHalf, sittingsOf, spreadHours } from './estimate.js?v=70'
 
 export { estimateWorkload, roundHalf }
 
@@ -269,7 +269,7 @@ function fixedBlocks(data, ignorePlanId, from, until) {
 export function proposeFix(task, tasks, data, deadline, ignorePlanId = '') {
   const hours = Math.max(0.5, taskHours(task) || 1)
   const duration = hours * 3600000
-  const from = Date.now()
+  const from = Math.max(Date.now(), Number(data?.floor) || 0)
   const until = deadline || from
   const blocked = fixedBlocks(data, ignorePlanId, Math.min(from, task.start || from), until).concat(blocksOf(tasks, task.id))
   const preferred = findWindow({
@@ -290,7 +290,7 @@ export function proposeFix(task, tasks, data, deadline, ignorePlanId = '') {
 }
 
 function cascadeLeaves(tasks, pivot, data, deadline, ignorePlanId) {
-  const from = Date.now()
+  const from = Math.max(Date.now(), Number(data?.floor) || 0)
   const until = deadline || pivot.end
   const others = leafTasks(tasks)
     .filter((task) => task.id !== pivot.id && task.status !== 'done' && task.start && task.end)
@@ -354,6 +354,8 @@ export function applyHoursChange(tasks, taskId, hours, data, deadline, ignorePla
   const task = next.find((item) => item.id === taskId)
   if (!task) return { tasks: next, kind: 'ok' }
   const oldEnd = task.end
+  // Chi tinh cac nhiem vu da co lich truoc khi chinh gio; nhiem vu von chua xep khong duoc coi la "bi day mat"
+  const wasPlaced = new Set(leafTasks(next).filter((item) => item.start && item.end).map((item) => item.id))
   task.hours = hours
   task.needFree = 0
   if (!(hours > 0) || hours > 24 || !task.start) {
@@ -362,7 +364,7 @@ export function applyHoursChange(tasks, taskId, hours, data, deadline, ignorePla
   }
   const need = hours * 3600000
   const wantEnd = task.start + need
-  const from = Date.now()
+  const from = Math.max(Date.now(), Number(data?.floor) || 0)
   const until = deadline || wantEnd
   const minFrom = Math.min(from, task.start)
   const foreign = foreignLeaves(data, ignorePlanId).filter((item) => item.end > minFrom && item.start < until)
@@ -408,7 +410,7 @@ export function applyHoursChange(tasks, taskId, hours, data, deadline, ignorePla
     task.end = wantEnd
     cascadeLeaves(next, task, data, deadline, ignorePlanId)
     refreshParents(next)
-    const leftover = leafTasks(next).filter((item) => item.status !== 'done' && item.id !== taskId && !item.start)
+    const leftover = leafTasks(next).filter((item) => item.status !== 'done' && item.id !== taskId && !item.start && wasPlaced.has(item.id))
     if (leftover.length) {
       const miss = roundHalf(leftover.reduce((sum, item) => sum + taskHours(item), 0)) || hours
       for (let i = 0; i < next.length; i += 1) {
@@ -450,7 +452,7 @@ export function applyHoursChange(tasks, taskId, hours, data, deadline, ignorePla
     trialTask.end = movedWindow.end
     cascadeLeaves(trial, trialTask, data, deadline, ignorePlanId)
     refreshParents(trial)
-    const leftover = leafTasks(trial).filter((item) => item.status !== 'done' && item.id !== taskId && !item.start)
+    const leftover = leafTasks(trial).filter((item) => item.status !== 'done' && item.id !== taskId && !item.start && wasPlaced.has(item.id))
     if (!leftover.length) {
       return { tasks: trial, kind: 'ok', window: movedWindow }
     }
@@ -465,13 +467,23 @@ export function applyHoursChange(tasks, taskId, hours, data, deadline, ignorePla
   return { tasks: next, kind: 'need-free', hours, hints: suggestFreeAdds(data, from, until, missHours) }
 }
 
+// Nhiem vu cua ke hoach AI co han muon hon data.displaceAfter se duoc xep lai (lui sau) khi xac nhan,
+// nen khong tinh la "trung lich" voi ke hoach dang tao.
+function movableLater(plan, task, data, now = Date.now()) {
+  const after = Number(data?.displaceAfter) || 0
+  if (!after || !autoScheduled(plan) || !((plan.deadline || 0) > after)) return false
+  return task.status !== 'done' && task.status !== 'doing' && task.end > now
+}
+
 function foreignLeaves(data, ignorePlanId) {
   const list = []
+  const now = Date.now()
   for (const plan of data?.plans || []) {
     if (ignorePlanId && plan.id === ignorePlanId) continue
     const course = (data.courses || []).find((item) => item.id === plan.courseId)
     for (const task of leafTasks(plan.tasks)) {
       if (!task.start || !task.end || task.status === 'done') continue
+      if (movableLater(plan, task, data, now)) continue
       list.push({
         ...task,
         planId: plan.id,
@@ -633,7 +645,7 @@ export function reviewTasks(tasks, data, deadline, ignorePlanId = '', course = n
   const pre = {
     now,
     leaves,
-    freeStrict: deadline > now ? openHours(data, now, deadline, ignorePlanId, 0) : null,
+    freeStrict: deadline > now ? openHours(data, now, deadline, ignorePlanId, Number(data?.displaceAfter) ? deadline + 1 : 0) : null,
     allForeign: foreignLeaves(data, ignorePlanId),
     allClasses: maxEnd > minStart ? classIntervals(data.courses, minStart, maxEnd) : [],
     courseStartTs: course?.start ? atTime(course.start, '00:00') : 0,

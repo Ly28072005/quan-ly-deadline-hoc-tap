@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, parseStamp, showDate, showStamp } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=68'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=68'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=70'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, opts, pill, progress, timeBox, wrapDate } from './html.js?v=70'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -160,6 +160,7 @@ export function renderAi(ctx) {
 
 function aiReview(ctx) {
   const ai = ctx.ai
+  ctx = { ...ctx, data: { ...ctx.data, displaceAfter: ai.deadline || 0 } }
   const review = reviewTasks(ai.tasks, ctx.data, ai.deadline, ai.planId)
   const ghost = aiPlan(ctx)
   const load = scheduleLoad({
@@ -204,6 +205,9 @@ function reviewRows(tasks, ctx) {
   const pendingId = ctx.ai?.pendingHours?.id || ''
   const warnMap = ctx.warnMap || null
   const typingHours = ctx.ai?.typingHours || null
+  const course = (ctx.data.courses || []).find((item) => item.id === ctx.ai?.courseId)
+  const floor = course?.start ? atTime(course.start, '00:00') : 0
+  if (floor) ctx = { ...ctx, data: { ...ctx.data, floor } }
   if (!parents.length) return leaves.map((task, index) => taskEditor(task, index, tasks, ctx.data, ctx.ai.deadline, ctx.ai.planId, planShort, pendingId, warnMap, typingHours)).join('')
   let index = 0
   const seen = new Set()
