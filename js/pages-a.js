@@ -1,6 +1,6 @@
 import { WEEKDAYS, clock, dateISO, formatAgo, formatBytes, formatDMY, formatHours, formatISO, formatSpan, formatSpokenDate, formatWhen, showDate, weekdayLabel } from './format.js'
-import { classOverlaps, completionTrend, courseWindowWarnings, leafTasks, parseOutput, sentenceCase, taskHours, taskStatus } from './model.js?v=86'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, logo, opts, pill, progress, swatch, wrapDate } from './html.js?v=86'
+import { classOverlaps, completionTrend, courseWindowWarnings, leafTasks, parseOutput, sentenceCase, taskHours, taskStatus } from './model.js?v=87'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, logo, opts, pill, progress, swatch, wrapDate } from './html.js?v=87'
 
 export function renderAuth(mode, auth, reset) {
   const hero = `<aside class="hero">
@@ -221,7 +221,7 @@ function docIndex(ctx) {
   const items = ctx.view.courses.filter((course) => !q || foldSafe(course.name).includes(q))
   return `<div class="tools-row"><label class="search">${icon('search', 18)}<input class="input" data-live="query" data-key="q" placeholder="Tìm tên môn học để tải tài liệu" value="${esc(ctx.query.q || '')}"></label></div>
     <div class="card list">${items.map((course) => `<div class="list-row">
-      <a class="doc-main" href="#/tai-lieu/${course.id}"><span class="doc-title">${dot(course.color)} <strong>${esc(course.name)}</strong></span><span class="sub">${course.docCount} tài liệu${course.updatedAt ? ` · cập nhật ${formatAgo(course.updatedAt, ctx.now)}` : ''}</span></a>
+      <a class="doc-main" href="#/tai-lieu/${course.id}"><span class="doc-title">${dot(course.color)} <strong>${esc(course.name)}</strong></span><span class="sub">${course.docCount} tài liệu</span></a>
       <label class="btn btn-soft file-btn">Chọn tệp<input type="file" hidden multiple data-act="upload" data-id="${course.id}" accept=".pdf,.ppt,.pptx,.doc,.docx,.png,.jpg,.jpeg,.txt,.md"></label>
     </div>`).join('') || '<p class="muted pad">Không có môn phù hợp</p>'}</div>`
 }

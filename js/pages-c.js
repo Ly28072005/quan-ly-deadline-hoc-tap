@@ -2,9 +2,9 @@ import {
   DAY, WEEKDAYS, atTime, clock, dateISO, formatAgo, formatBytes, formatDM, formatDMY, formatHours, formatMonthTitle,
   formatSession, formatSpokenDate, formatSpan, formatWhen, sameDay, startOfDay, weekdayLabel, weekRange,
 } from './format.js'
-import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=86'
-import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=86'
-import { geminiKey } from './claude.js?v=86'
+import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=87'
+import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=87'
+import { geminiKey } from './claude.js?v=87'
 
 const HOUR = 64
 const START_H = 6
@@ -251,7 +251,6 @@ export function renderTask(ctx) {
             <div class="status-pick">${['todo', 'doing', 'done'].map((key) => `<button type="button" data-act="set-status" data-id="${found.id}" data-status="${key}" aria-pressed="${found.status === key}">${STATUS[key].label}</button>`).join('')}</div>
             ${found.view === 'overdue' ? `<p class="move-line">Đã quá giờ so với khung đã xếp. <button type="button" class="text-btn" data-act="move-task" data-id="${found.id}">Dời sang khung trống</button></p>` : ''}
           </div>
-          ${found.description ? `<p><span class="k">Yêu cầu của đầu mục</span><br>${esc(found.description)}</p>` : ''}
         </section>
         <section class="card pad">
           <h2>Bài tập của nhiệm vụ</h2>
@@ -260,7 +259,7 @@ export function renderTask(ctx) {
           ${(found.files || []).map((file) => `<div class="list-row"><button class="doc-open" type="button" data-act="view-doc" data-id="${file.id}"><span class="doc-title">${icon(file.type === 'Ảnh' ? 'image' : 'file', 18)} <strong>${esc(file.name)}</strong></span><span class="sub">${formatBytes(file.size)} · ${formatAgo(file.updatedAt, ctx.now)} · Xem</span></button><button class="icon-btn" type="button" data-act="del-file" data-id="${found.id}" data-file="${file.id}" aria-label="Xóa">${icon('trash', 16)}</button></div>`).join('')}
         </section>
       </div>
-      ${chatBox('Trợ lý làm bài', `Gemini đọc tài liệu môn, đề bạn đẩy lên, và tìm web khi cần`, ctx.source, messages, greeting, ctx.chatBusy === found.id, [
+      ${chatBox('Trợ lý làm bài', '', ctx.source, messages, greeting, ctx.chatBusy === found.id, [
         'Giải bài tập này', 'Giải thích yêu cầu bài tập', 'Gợi ý các bước làm', 'Nên đọc tài liệu nào?', 'Kiểm tra bài làm của mình',
       ], 'Dán đề hoặc hỏi cách làm…', 'task')}
     </div>`,
@@ -270,7 +269,7 @@ export function renderTask(ctx) {
 export function chatBox(title, sub, source, messages, greeting, busy, chips, placeholder, scope) {
   const list = messages.length ? messages : [{ role: 'ai', suggestion: greeting, from: '', actions: [] }]
   return `<aside class="chat-pane">
-    <header><span class="spark">${icon('sparkles', 18)}</span><div><strong>${title}</strong><span class="sub">${esc(sub)}</span></div><span class="source ${source === 'gemini' ? '' : 'sim'}">${source === 'gemini' ? 'Gemini' : 'Mô phỏng'}</span></header>
+    <header><span class="spark">${icon('sparkles', 18)}</span><div><strong>${title}</strong>${sub ? `<span class="sub">${esc(sub)}</span>` : ''}</div><span class="source ${source === 'gemini' ? '' : 'sim'}">${source === 'gemini' ? 'Gemini' : 'Mô phỏng'}</span></header>
     <div class="msgs">${list.map((msg) => bubble(msg)).join('')}${busy ? `<div class="bubble ai"><span class="dots"></span> Gemini đang đọc đề, tìm nguồn và soạn câu trả lời…</div>` : ''}</div>
     <div class="chips">${chips.map((text) => `<button type="button" data-act="chip" data-scope="${scope}" data-text="${esc(text)}">${esc(text)}</button>`).join('')}</div>
     <form class="composer" data-act="send" data-scope="${scope}"><textarea class="input" name="text" rows="2" placeholder="${esc(placeholder)}"></textarea><button class="btn btn-primary icon-only" type="submit" aria-label="Gửi">${icon('send', 16)}</button></form>

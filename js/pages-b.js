@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, showDate } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=86'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=86'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=87'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=87'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -171,6 +171,10 @@ function aiReview(ctx) {
     ...ctx.data,
     plans: [...ctx.data.plans.filter((plan) => plan.id !== ai.planId), ghost].filter(Boolean),
   }, ctx.now)
+  // Free time still unused up to this plan's deadline once this draft is placed (classes and other plans excluded).
+  const freeLeft = ai.deadline > ctx.now
+    ? openHours({ ...ctx.data, plans: [...ctx.data.plans.filter((plan) => plan.id !== ai.planId), ghost].filter(Boolean) }, ctx.now, ai.deadline, '', ai.deadline)
+    : 0
   const locked = review.bad > 0
   const ok = review.tone === 'ok' && !load.short && !review.short
   const tone = review.tone === 'bad' ? 'bad' : 'warn'
@@ -182,7 +186,10 @@ function aiReview(ctx) {
     back: '#/ke-hoach',
     foot: `<a class="btn btn-ghost" href="#/ke-hoach">Hủy</a><button class="btn btn-primary" type="button" data-act="ai-confirm" ${locked ? 'disabled' : ''}>${icon('check', 16)} Xác nhận kế hoạch</button>`,
     html: `${impactBanner(ghost, ctx, `<button class="btn btn-primary" type="button" data-act="ai-rebuild">${icon('sparkles', 16)} Tạo lại bằng AI</button>`)}
-      ${ok ? `<p class="placed-note">Đã xếp ${formatHours(review.placed)} giờ.</p>` : ''}
+      <div class="placed-row">
+        ${ok ? `<span class="placed-chip">${icon('check', 14)} Đã xếp ${formatHours(review.placed)} giờ</span>` : ''}
+        ${ai.deadline ? `<span class="free-chip${freeLeft < 1 ? ' low' : ''}">${icon('clock', 14)} Còn ${formatHours(freeLeft)} giờ rảnh đến hạn ${formatWhen(ai.deadline)}</span>` : ''}
+      </div>
       ${Number(ai.displaced) > 0 ? '<p class="fine">Khi xác nhận, lịch các môn hạn xa hơn sẽ được xếp lại để xen kẽ với môn hạn sớm.</p>' : ''}
       ${load.short ? banner('bad', `Thiếu ${formatHours(load.delta)} giờ rảnh`, `Cần ${formatHours(load.need)} giờ, quỹ rảnh còn ${formatHours(load.open)} giờ. Hãy thêm giờ rảnh, hệ thống sẽ xếp vào khung trống còn lại.`, addFree) : ''}
       ${review.short && !load.short ? banner('warn', 'Tổng thời gian học vượt quá thời gian rảnh', `Cần thêm ${formatHours(review.need - review.open)} giờ rảnh hoặc bớt nhiệm vụ.`, addFree) : ''}
