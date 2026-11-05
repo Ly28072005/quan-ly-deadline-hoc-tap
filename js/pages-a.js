@@ -1,6 +1,6 @@
 import { WEEKDAYS, clock, dateISO, formatAgo, formatBytes, formatDMY, formatHours, formatISO, formatSpan, formatSpokenDate, formatWhen, showDate, weekdayLabel } from './format.js'
-import { classOverlaps, completionTrend, courseWindowWarnings, leafTasks, parseOutput, sentenceCase, taskHours, taskStatus } from './model.js?v=77'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, logo, opts, pill, progress, swatch, wrapDate } from './html.js?v=77'
+import { classOverlaps, completionTrend, courseWindowWarnings, leafTasks, parseOutput, sentenceCase, taskHours, taskStatus } from './model.js?v=78'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, logo, opts, pill, progress, swatch, wrapDate } from './html.js?v=78'
 
 export function renderAuth(mode, auth, reset) {
   const hero = `<aside class="hero">

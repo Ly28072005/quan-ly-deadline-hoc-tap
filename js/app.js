@@ -3,14 +3,14 @@ import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
   batchHoursOf, deadlineMilestones, noticeDue,
-} from './model.js?v=77'
+} from './model.js?v=78'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=77'
-import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=77'
-import { esc, icon, logo } from './html.js?v=77'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=77'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=77'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=77'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=78'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=78'
+import { esc, icon, logo } from './html.js?v=78'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=78'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=78'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=78'
 
 const store = createStore()
 const NAV = [
@@ -1025,17 +1025,6 @@ function onClick(event) {
   if (act === 'chip') sendChat(node.dataset.scope, node.dataset.text)
   if (act === 'read-all') { store.markAllRead(); render() }
   if (act === 'notice-filter') setQuery({ loc: node.dataset.value === 'all' ? '' : node.dataset.value })
-  if (act === 'snooze') {
-    const mins = store.settings().snoozeMinutes || 15
-    const result = store.snooze(node.dataset.id, mins)
-    if (!result.ok && result.reason === 'wait') { toast(`Chưa hết thời gian hoãn. Có thể hoãn tiếp lúc ${clock(result.until)}`); return }
-    if (!result.ok && result.reason === 'limit') { toast('Đã hoãn đủ 3 lần. Hãy hoàn thành hoặc hủy nhắc.'); return }
-    if (!result.ok) return
-    render()
-    toast(`Đã hoãn nhắc đến ${clock(result.until)}`)
-  }
-  if (act === 'notice-done') finishNotice(node.dataset.id, true)
-  if (act === 'notice-dismiss') finishNotice(node.dataset.id, false)
   if (act === 'set-pref') {
     const key = node.dataset.key
     const value = node.dataset.value === 'toggle' ? node.checked : (Number.isNaN(Number(node.dataset.value)) ? node.dataset.value : Number(node.dataset.value))
@@ -1062,14 +1051,6 @@ function onClick(event) {
     render()
     toast('Đã lưu khung giờ nhận')
   }
-}
-
-function finishNotice(id, done) {
-  const notice = store.snapshot().notices.find((item) => item.id === id)
-  if (done && notice?.taskId) store.updateTask(notice.taskId, { status: 'done' })
-  store.markRead(id)
-  navigate('#/thong-bao')
-  toast(done ? 'Đã hoàn thành nhắc' : 'Đã hủy nhắc')
 }
 
 function readManualFields() {

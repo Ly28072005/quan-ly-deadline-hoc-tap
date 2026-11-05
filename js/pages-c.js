@@ -2,9 +2,9 @@ import {
   DAY, WEEKDAYS, atTime, clock, dateISO, formatAgo, formatBytes, formatDM, formatDMY, formatHours, formatMonthTitle,
   formatSession, formatSpokenDate, formatSpan, formatWhen, sameDay, startOfDay, weekdayLabel, weekRange,
 } from './format.js'
-import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, SNOOZE_LIMIT, SOON_MINUTES, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=77'
-import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=77'
-import { geminiKey } from './claude.js?v=77'
+import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=78'
+import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=78'
+import { geminiKey } from './claude.js?v=78'
 
 const HOUR = 64
 const START_H = 6
@@ -336,7 +336,7 @@ export function renderNotice(ctx) {
       <div class="plan-tags"><span class="n-ico ${notice.type}">${icon(notice.type === 'deadline' ? 'clock' : notice.type === 'schedule' ? 'calendar' : 'alert', 18)}</span><span class="sub">${formatAgo(notice.createdAt, ctx.now)}</span></div>
       <h2 class="notice-title">${esc(notice.title)}</h2>
       <p class="notice-body">${esc(notice.body)}</p>
-      <div class="form-foot">${action}${snoozeControls(notice, ctx)}</div>
+      ${action ? `<div class="form-foot">${action}</div>` : ''}
     </article>`,
   }
 }
@@ -351,21 +351,16 @@ export function renderSettings(ctx) {
     back: '#/thong-bao',
     html: `<div class="narrow stack">
       <section class="card pad"><h2>Loại thông báo</h2>
-        ${toggle('deadlineOn', 'Nhắc deadline', `Mỗi ngày: hôm nay có những nhiệm vụ nào, mấy giờ. Trước giờ làm ${SOON_MINUTES} phút: nhiệm vụ sắp đến giờ. Kế hoạch sắp đến hạn nộp theo các mốc bên dưới.`, s)}
-        ${toggle('scheduleOn', 'Nhắc lịch học', `Trước 1 ngày: ngày mai có những buổi học trên lớp nào, mấy giờ, phòng nào. Trước giờ vào học ${SOON_MINUTES} phút: nhắc sắp vào học. Nhắc lịch học không hoãn được.`, s)}
-        ${toggle('warningOn', 'Cảnh báo kế hoạch', 'Kế hoạch đã quá hạn nộp, nhiệm vụ đã qua giờ mà chưa xong, môn đang học nhưng chưa có kế hoạch. Tự biến mất khi bạn xử lý xong.', s)}
+        ${toggle('deadlineOn', 'Nhắc deadline', '', s)}
+        ${toggle('scheduleOn', 'Nhắc lịch học', '', s)}
+        ${toggle('warningOn', 'Cảnh báo kế hoạch', '', s)}
       </section>
       <section class="card pad"><h2>Thời điểm và tần suất</h2>
         <p>Nhắc kế hoạch trước hạn nộp</p>
         <div class="chip-choice">${DEADLINE_MILESTONES.slice().reverse().map((day) => `<button type="button" class="${marks.includes(day) ? 'on' : ''}" data-act="toggle-mark" data-value="${day}" aria-pressed="${marks.includes(day)}">${day} ngày</button>`).join('')}</div>
-        <p class="fine">${marks.length ? `Chọn được nhiều mốc. Mỗi mốc nhắc một lần: ${marks.map((day) => `còn ${day} ngày`).join(', ')} trước hạn nộp của mỗi kế hoạch.` : 'Đang tắt: không nhắc kế hoạch sắp đến hạn. Bấm một mốc để bật lại.'}</p>
-        <p>Thời gian hoãn nhắc</p><div class="chip-choice">${chip('snoozeMinutes', 5, '5 phút')}${chip('snoozeMinutes', 10, '10 phút')}${chip('snoozeMinutes', 15, '15 phút')}${chip('snoozeMinutes', 30, '30 phút')}${chip('snoozeMinutes', 60, '1 giờ')}</div>
-        <p class="fine">Bấm "Hoãn" ở một thông báo thì nó tạm ẩn rồi hiện lại sau khoảng này. Mỗi thông báo hoãn được ${SNOOZE_LIMIT} lần. Không áp dụng cho nhắc lịch học.</p>
         <p>Tần suất nhận</p><div class="chip-choice">${chip('frequency', 'instant', 'Ngay khi có')}${chip('frequency', 'batch', 'Gom theo khung giờ')}</div>
         ${s.frequency === 'batch' ? `<p>Khung giờ nhận</p>
-        <div class="chip-choice">${BATCH_HOURS.map((hour) => `<button type="button" class="${hours.includes(hour) ? 'on' : ''}" data-act="toggle-hour" data-value="${hour}" aria-pressed="${hours.includes(hour)}">${hour}:00</button>`).join('')}</div>
-        <p class="fine">Thông báo được giữ lại và hiện cùng lúc vào ${hours.map((hour) => `${hour}:00`).join(', ')}. Chọn được nhiều khung, ít nhất 1. Riêng nhắc "sắp đến giờ" (trước ${SOON_MINUTES} phút) vẫn hiện ngay.</p>`
-    : '<p class="fine">Có việc cần nhắc là thông báo hiện ra ngay lúc đó, không chờ. App tự kiểm tra mỗi phút khi đang mở.</p>'}
+        <div class="chip-choice">${BATCH_HOURS.map((hour) => `<button type="button" class="${hours.includes(hour) ? 'on' : ''}" data-act="toggle-hour" data-value="${hour}" aria-pressed="${hours.includes(hour)}">${hour}:00</button>`).join('')}</div>` : ''}
       </section>
       <section class="card pad"><h2>Thiết bị</h2>${toggle('push', 'Nhắc trên điện thoại', '', s)}</section>
       <section class="card pad stack"><h2>Trợ lý AI</h2>
@@ -380,27 +375,9 @@ export function renderSettings(ctx) {
   }
 }
 
-function snoozeLabel(mins) {
-  return Number(mins) >= 60 ? '1 giờ' : `${mins} phút`
-}
 function noticeWhen(notice, now) {
-  if (notice.snoozeUntil > now) return `Hoãn đến ${formatDMY(notice.snoozeUntil)} ${clock(notice.snoozeUntil)}`
   if (notice.deliverAt > now) return `Phát lúc ${formatDMY(notice.deliverAt)} ${clock(notice.deliverAt)}`
   return formatAgo(notice.createdAt, now)
-}
-function snoozeControls(notice, ctx) {
-  // Class reminders are not snoozed: they fire the day before and 30 minutes before class.
-  if (notice.type === 'schedule') return ''
-  const mins = ctx.data.settings.snoozeMinutes || 15
-  const count = notice.snoozeCount || 0
-  if (notice.snoozeUntil > ctx.now) {
-    return `<p class="fine">Đã hoãn đến ${formatDMY(notice.snoozeUntil)} ${clock(notice.snoozeUntil)}. Chưa hoãn tiếp được trước thời điểm này.</p>`
-  }
-  if (count >= SNOOZE_LIMIT) {
-    return `<p class="fine">Đã hoãn đủ ${SNOOZE_LIMIT} lần.</p><button class="btn btn-primary" type="button" data-act="notice-done" data-id="${notice.id}">Hoàn thành</button><button class="btn btn-ghost" type="button" data-act="notice-dismiss" data-id="${notice.id}">Hủy nhắc</button>`
-  }
-  const used = count ? `<p class="fine">Đã hoãn ${count}/${SNOOZE_LIMIT} lần.</p>` : ''
-  return `${used}<button class="btn btn-ghost" type="button" data-act="snooze" data-id="${notice.id}">${icon('clock', 16)} Hoãn nhắc ${snoozeLabel(mins)}</button>`
 }
 function toggle(key, title, text, settings) {
   return `<label class="switch-row"><span><strong>${title}</strong>${text ? `<span class="sub">${text}</span>` : ''}</span><input type="checkbox" data-act="set-pref" data-key="${key}" data-value="toggle" ${settings[key] ? 'checked' : ''}></label>`
