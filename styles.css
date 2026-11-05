@@ -482,6 +482,10 @@ textarea.input { height: auto; }
 .cal-scroll { flex: 1; min-height: 0; overflow: auto; }
 .cal-grid { display: grid; grid-template-columns: 48px repeat(var(--days), minmax(148px, 1fr)); width: 100%; min-width: max(100%, calc(48px + var(--days) * 148px)); }
 .cal-corner, .cal-date, .cal-due-label, .cal-due { padding: 8px; border-bottom: 1px solid var(--line-2); border-right: 1px solid var(--line-2); }
+.cal-corner, .cal-due-label { padding: 8px 2px; font-size: 10px; font-weight: 600; line-height: 1.3; color: var(--muted); text-align: center; overflow-wrap: anywhere; }
+.cal-corner { display: flex; align-items: flex-end; justify-content: center; }
+/* Day headers stay visible while the hours scroll. */
+.cal-corner, .cal-date { position: sticky; top: 0; z-index: 7; background: var(--surface); }
 .cal-date { text-align: center; }
 .cal-date span { display: block; font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
 .cal-date b { display: inline-grid; place-items: center; min-width: 28px; height: 28px; font-size: 21px; font-weight: 700; }
@@ -493,19 +497,23 @@ textarea.input { height: auto; }
 .cal-col.today { background-color: color-mix(in srgb, var(--brand-soft) 35%, transparent); background-image: repeating-linear-gradient(to bottom, transparent, transparent 63px, var(--line-2) 64px); }
 .band, .now-line { position: absolute; left: 3px; right: 3px; }
 .block { position: absolute; left: 3px; right: auto; box-sizing: border-box; border-radius: 10px; padding: 5px 8px; overflow: hidden; font-size: 12px; }
-.band.free { z-index: 0; background: color-mix(in srgb, var(--brand) 46%, var(--paper)); box-shadow: inset 4px 0 0 var(--brand); }
-.block.class { z-index: 1; display: flex; flex-direction: column; gap: 1px; background: var(--surface); border: 1px dashed var(--accent); border-left: 3px dashed var(--accent); color: var(--ink-2); pointer-events: none; }
-.block.class strong { font-size: 12.5px; font-weight: 800; color: var(--ink); line-height: 1.25; }
+/* Free time: a quiet green band behind everything. */
+.band.free { z-index: 0; background: color-mix(in srgb, var(--brand) 14%, var(--surface)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--brand) 55%, transparent); }
+/* Class on campus: light grey with diagonal hatching, a book icon and the "Trên lớp" tag. */
+.block.class { z-index: 1; display: flex; flex-direction: column; gap: 1px; color: var(--ink-2); pointer-events: none; background-color: var(--surface-2); background-image: repeating-linear-gradient(135deg, transparent 0 7px, color-mix(in srgb, var(--muted) 16%, transparent) 7px 9px); border: 1px solid color-mix(in srgb, var(--muted) 35%, var(--line)); }
+.block.class strong { display: flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 800; color: var(--ink); line-height: 1.25; }
+.block.class strong .cdot { flex: none; width: 8px; height: 8px; }
 .block.class span { font-size: 11.5px; color: var(--ink-2); font-weight: 600; line-height: 1.25; }
 .block.class span.when { color: var(--ink); font-weight: 800; }
-.block.class em { display: inline-flex; align-self: flex-start; margin-top: 2px; font-style: normal; font-size: 10.5px; font-weight: 800; color: var(--ink-2); background: var(--surface-2); border-radius: 999px; padding: 1px 6px; }
-.block.class.clash { border: 1px solid var(--danger); border-left: 3px solid var(--danger); background: var(--danger-soft); }
-.block.task { z-index: 2; display: flex; flex-direction: column; gap: 1px; cursor: pointer; background: var(--surface); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-left: 4px solid var(--accent); color: var(--ink); box-shadow: 0 0 0 1.5px var(--paper); }
-.block.task:hover, .block.class:hover { z-index: 8; overflow: visible; min-height: 78px; height: auto !important; background: var(--surface); box-shadow: var(--shadow); }
-.block.task:hover { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
-.block.task.doing { border-left-color: var(--info); }
+.block.class em { display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; margin-top: 3px; font-style: normal; font-size: 10.5px; font-weight: 800; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; }
+.block.class.clash { border: 1px solid var(--danger); background-color: var(--danger-soft); }
+/* Task: tinted with its course colour, solid course-colour edge. */
+.block.task { z-index: 2; display: flex; flex-direction: column; gap: 1px; cursor: pointer; background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line)); border-left: 4px solid var(--accent); color: var(--ink); box-shadow: 0 0 0 1.5px var(--surface); }
+.block.task:hover, .block.class:hover { z-index: 8; overflow: visible; min-height: 78px; height: auto !important; box-shadow: var(--shadow); }
+.block.task:hover { background: color-mix(in srgb, var(--accent) 24%, var(--surface)); }
 .block.task.overdue { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); border-left-color: var(--danger); }
-.block.task.done { opacity: 1; background: color-mix(in srgb, var(--brand) 46%, var(--paper)); border-color: color-mix(in srgb, var(--brand) 40%, var(--line)); border-left-color: var(--brand); }
+.block.task.done { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); border-color: var(--line); }
+.block.task.done strong { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink) 45%, transparent); }
 .block.task strong { display: block; font-size: 12.5px; font-weight: 800; color: var(--ink); line-height: 1.25; text-decoration: none; overflow-wrap: anywhere; }
 .block.task span { display: block; font-size: 11px; color: var(--ink-2); line-height: 1.25; font-weight: 600; }
 .block.task span.when { color: var(--ink); font-weight: 800; }
@@ -515,20 +523,23 @@ textarea.input { height: auto; }
 .block.task.doing em { color: var(--info); background: var(--info-soft); }
 .block.task.overdue em { color: var(--danger); background: var(--paper); }
 .block.task.done em { color: var(--brand); background: var(--paper); }
-.block.task.done strong, .block.task.done span { color: var(--ink); text-decoration: none; }
+.block.task.done span { color: var(--ink-2); }
 .block strong, .block span, .block em { display: block; }
-.cal-rule { margin: 0; line-height: 1.45; }
-.cal-key.courses { flex-wrap: wrap; border-top: 0; padding-top: 0; }
-.cal-key.courses span { display: inline-flex; align-items: center; gap: 6px; }
-.cal-key.courses .cdot { width: 8px; height: 8px; border-radius: 50%; margin-right: 0; box-shadow: none; background: var(--accent); }
+.block.class em, .block.class strong { display: flex; }
+.cal-key.courses { flex-wrap: wrap; gap: 8px 16px; padding-top: 0; font-size: 13px; }
+.cal-key.courses span { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: var(--ink); }
+.cal-key.courses .cdot { width: 10px; height: 10px; border-radius: 50%; margin-right: 0; box-shadow: none; background: var(--accent); }
 .now-line { height: 2px; background: var(--danger); z-index: 3; }
 .now-line::before { content: ""; position: absolute; left: -4px; top: -4px; width: 10px; height: 10px; border-radius: 50%; background: var(--danger); }
-.cal-key { display: flex; gap: 14px; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line-2); color: var(--ink-2); font-size: 12.5px; }
-.cal-key i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; margin-right: 6px; vertical-align: -2px; }
-.cal-key .free { background: color-mix(in srgb, var(--brand) 46%, var(--paper)); box-shadow: inset 3px 0 0 var(--brand); }
-.cal-key .class { background: var(--surface); border: 1px dashed var(--ink-2); }
-.cal-key .task { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--s2); }
-.cal-key .done { background: color-mix(in srgb, var(--brand) 46%, var(--paper)); box-shadow: inset 3px 0 0 var(--brand); }
+/* Legend: sits above the scrolling grid, so it stays put while the calendar scrolls. */
+.cal-legend { flex: none; position: sticky; top: 0; z-index: 9; background: var(--surface); border-bottom: 1px solid var(--line-2); }
+.cal-key { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; padding: 12px 16px; color: var(--ink); font-size: 14px; font-weight: 600; }
+.cal-key > span { display: inline-flex; align-items: center; gap: 8px; }
+/* Each sample is a tiny copy of the block it explains. */
+.key-sample { width: 34px; height: 22px; border-radius: 6px; display: inline-grid; place-items: center; flex: none; box-sizing: border-box; }
+.key-sample.free { background: color-mix(in srgb, var(--brand) 14%, var(--surface)); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--brand) 55%, transparent); }
+.key-sample.class { color: var(--ink-2); background-color: var(--surface-2); background-image: repeating-linear-gradient(135deg, transparent 0 4px, color-mix(in srgb, var(--muted) 22%, transparent) 4px 6px); border: 1px solid color-mix(in srgb, var(--muted) 35%, var(--line)); }
+.key-sample.task { background: color-mix(in srgb, var(--s2) 16%, var(--surface)); border: 1px solid color-mix(in srgb, var(--s2) 35%, var(--line)); border-left: 4px solid var(--s2); }
 .due-chip { display: inline-block; background: var(--danger-soft); color: var(--danger); font-size: 11px; font-weight: 700; border-radius: 5px; margin: 2px; }
 .day-strip { display: none; gap: 6px; padding: 8px; }
 .day-strip button { flex: 1; border: 0; background: transparent; border-radius: 10px; padding: 6px 0; color: var(--muted); cursor: pointer; }

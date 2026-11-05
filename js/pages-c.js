@@ -2,9 +2,9 @@ import {
   DAY, WEEKDAYS, atTime, clock, dateISO, formatAgo, formatBytes, formatDM, formatDMY, formatHours, formatMonthTitle,
   formatSession, formatSpokenDate, formatSpan, formatWhen, sameDay, startOfDay, weekdayLabel, weekRange,
 } from './format.js'
-import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=78'
-import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=78'
-import { geminiKey } from './claude.js?v=78'
+import { BATCH_HOURS, DEADLINE_MILESTONES, batchHoursOf, STATUS, deadlineMilestones, classOverlaps, dayBlocks, monthCells, slotClashClass, taskHours, taskStatus } from './model.js?v=79'
+import { accent, banner, dot, empty, esc, icon, opts } from './html.js?v=79'
+import { geminiKey } from './claude.js?v=79'
 
 const HOUR = 64
 const START_H = 6
@@ -35,12 +35,16 @@ export function renderCalendar(ctx) {
           <label class="check"><input type="checkbox" data-act="cal-flag" data-id="klass" ${ctx.cal.klass ? 'checked' : ''}> Lịch trên lớp</label>
           <label class="check"><input type="checkbox" data-act="cal-flag" data-id="free" ${ctx.cal.free ? 'checked' : ''}> Giờ rảnh</label>
         </div>
-        <h2>Cách xếp lịch</h2>
-        <p class="fine cal-rule">Hạn nộp sớm hơn vào khung trống trước. Bình thường tối đa 2 giờ/môn/ngày; còn dưới 3 ngày hoặc khối lượng vượt 2 giờ × số ngày còn lại thì nới lên 4 giờ; còn dưới 24 giờ hoặc không kịp thì dùng hết giờ rảnh trong ngày. Chỉ xếp trong giờ rảnh, bỏ giờ đã trôi và giờ lên lớp. Hết quỹ rảnh thì cần thêm giờ rảnh.</p>
       </aside>
       <section class="card cal-card">
-        <div class="cal-key"><span><i class="free"></i>Giờ rảnh</span><span><i class="class"></i>Trên lớp</span><span><i class="task"></i>Nhiệm vụ</span></div>
-        ${courseKey(visibleTasks)}
+        <div class="cal-legend">
+          <div class="cal-key">
+            <span><i class="key-sample free" aria-hidden="true"></i>Giờ rảnh</span>
+            <span><i class="key-sample class" aria-hidden="true">${icon('book', 12)}</i>Trên lớp</span>
+            <span><i class="key-sample task" aria-hidden="true"></i>Nhiệm vụ</span>
+          </div>
+          ${courseKey(events.filter((event) => (event.kind === 'task' ? ctx.cal.tasks && shown(event, ctx) : ctx.cal.klass)))}
+        </div>
         ${visibleTasks.length ? '' : '<div class="cal-empty">Chưa có nhiệm vụ trong tuần này · <a href="#/ke-hoach/ai">Tạo kế hoạch</a></div>'}
         ${mode === 'day' ? `<div class="day-strip">${daysOfWeek(anchor).map((day) => `<button type="button" class="${sameDay(day, anchor) ? 'on' : ''}" data-act="cal-jump" data-d="${dateISO(day)}"><span>${['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'][new Date(day).getDay()]}</span><b>${new Date(day).getDate()}</b></button>`).join('')}</div>` : ''}
         <div class="cal-scroll" data-scroll="cal">
@@ -140,7 +144,7 @@ function laneBox(row, extra = '') {
 function classCard(row) {
   const item = row.item
   const clash = row.cols > 1
-  return `<div class="block class${clash ? ' clash' : ''}" style="${laneBox(row, `--accent:${accent(item.color)}`)}"><span class="when">${esc(formatSpan(item.start, item.end))}</span><strong>${esc(item.name)}</strong>${item.room ? `<span>${esc(item.room)}</span>` : ''}<em>Lịch trên lớp</em></div>`
+  return `<div class="block class${clash ? ' clash' : ''}" style="${laneBox(row, `--accent:${accent(item.color)}`)}"><span class="when">${esc(formatSpan(item.start, item.end))}</span><strong><i class="cdot"></i>${esc(item.name)}</strong>${item.room ? `<span>${esc(item.room)}</span>` : ''}<em>${icon('book', 12)} Trên lớp</em></div>`
 }
 
 function taskCard(row) {
@@ -151,13 +155,14 @@ function taskCard(row) {
   return `<a class="block task ${item.view}" href="#/nhiem-vu/${item.id}" style="${laneBox(row, `--accent:${accent(item.color)}`)}" title="${esc(title)}"><strong>${esc(item.name)}</strong>${course ? `<span class="course">${esc(course)}</span>` : ''}<em>${esc(status)}</em></a>`
 }
 
-function courseKey(tasks) {
+// Every course that shows up this week, from its tasks or its classes.
+function courseKey(events) {
   const seen = new Map()
-  for (const task of tasks || []) {
-    const name = task.courseName || task.course?.name
+  for (const event of events || []) {
+    const name = event.kind === 'class' ? event.name : (event.courseName || event.course?.name)
     if (!name) continue
-    const id = task.course?.id || task.courseId || name
-    if (!seen.has(id)) seen.set(id, { name, color: task.color })
+    const id = event.kind === 'class' ? event.courseId : (event.course?.id || event.plan?.courseId || name)
+    if (!seen.has(id)) seen.set(id, { name, color: event.color })
   }
   if (!seen.size) return ''
   return `<div class="cal-key courses">${[...seen.values()].map((item) => `<span>${dot(item.color)}${esc(item.name)}</span>`).join('')}</div>`
