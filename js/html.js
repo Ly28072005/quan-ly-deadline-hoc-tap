@@ -1,5 +1,5 @@
 import { isoOf, parseTime, showDate } from './format.js'
-import { STATUS } from './model.js?v=82'
+import { STATUS } from './model.js?v=83'
 import { icon } from './icons.js'
 
 export { icon }

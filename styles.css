@@ -503,6 +503,9 @@ textarea.input { height: auto; }
 .cal-date.today span { color: var(--brand); }
 .cal-date.today b { width: 40px; height: 40px; background: var(--brand); color: var(--on-brand); border-radius: 50%; }
 .cal-hours, .cal-col { position: relative; height: 1152px; border-right: 1px solid var(--line-2); }
+/* Hour column (and its header cells) stays on the left while the days scroll sideways. */
+.cal-hours, .cal-due-label { position: sticky; left: 0; z-index: 6; background: var(--surface); }
+.cal-corner { left: 0; z-index: 9; }
 .cal-hours span { position: absolute; left: 8px; transform: translateY(-8px); color: var(--muted); font-size: 11px; }
 .cal-col { background-image: repeating-linear-gradient(to bottom, transparent, transparent 63px, var(--line-2) 64px); }
 .cal-col.today { background-color: color-mix(in srgb, var(--brand-soft) 35%, transparent); background-image: repeating-linear-gradient(to bottom, transparent, transparent 63px, var(--line-2) 64px); }
