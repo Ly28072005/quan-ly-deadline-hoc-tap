@@ -3,14 +3,14 @@ import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
   batchHoursOf, deadlineMilestones, noticeDue,
-} from './model.js?v=90'
+} from './model.js?v=91'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=90'
-import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=90'
-import { esc, icon, logo } from './html.js?v=90'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=90'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=90'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=90'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=91'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=91'
+import { esc, icon, logo } from './html.js?v=91'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=91'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=91'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=91'
 
 const store = createStore()
 const NAV = [
@@ -32,6 +32,7 @@ let form = null
 let formKey = ''
 let ai = null
 let aiKey = ''
+let impactPrompt = '' // plan id to warn about when its edit page opens (set after a course change)
 let manual = null
 let manualKey = ''
 let aiTimer = 0
@@ -194,6 +195,20 @@ function prepare() {
     if (route.query.sua) {
       const plan = data.plans.find((item) => item.id === route.query.sua)
       ai = plan ? aiFromPlan(plan) : blankAi(data)
+      // Arrived from a course change that broke this plan: say so and offer an AI rebuild right away.
+      if (plan && impactPrompt === plan.id) {
+        impactPrompt = ''
+        const course = data.courses.find((item) => item.id === plan.courseId)
+        const reasons = course ? courseWindowWarnings(plan, course, data, Date.now()) : []
+        if (reasons.length) {
+          modal = {
+            title: 'Kế hoạch không còn khớp với môn học',
+            body: `${reasons.join(' ')} Tạo lại bằng AI để chia và xếp nhiệm vụ theo ngày mới của môn?`,
+            ok: 'Tạo lại bằng AI', cancel: 'Tự chỉnh sửa', danger: false,
+            run: () => rebuildAi(),
+          }
+        }
+      }
     } else ai = blankAi(data)
     aiKey = `ai:${route.query.mon || ''}:${route.query.sua || ''}`
   }
@@ -474,7 +489,8 @@ async function onSubmit(event) {
   }
 }
 
-function saveCourse(fields) {
+// opts.fixPlanId: saved from a "Kế hoạch bị ảnh hưởng" banner — leave that plan as it is and open it for editing.
+function saveCourse(fields, opts = {}) {
   const before = form.id ? store.snapshot().courses.find((item) => item.id === form.id) : null
   form = {
     ...form, ...fields,
@@ -493,9 +509,15 @@ function saveCourse(fields) {
   const { isNew, record } = store.saveCourse(form)
   const shifted = !isNew && before && (before.start !== record.start || before.end !== record.end || String(before.output || '').trim() !== record.output)
   const classChanged = !isNew && before && JSON.stringify(before.schedule || []) !== JSON.stringify(record.schedule || [])
-  if (shifted) syncCoursePlans(record)
+  if (shifted) syncCoursePlans(record, opts.fixPlanId || '')
   else if (classChanged) reindexPlans()
   formKey = ''
+  if (opts.fixPlanId) {
+    impactPrompt = opts.fixPlanId
+    aiKey = ''
+    navigate(`#/ke-hoach/ai?sua=${opts.fixPlanId}`)
+    return
+  }
   navigate(`#/mon/${record.id}`)
   if (isNew) toast('Tạo kế hoạch bằng AI cho môn này?', { label: 'Tạo ngay', run: () => navigate(`#/ke-hoach/ai?mon=${record.id}`) })
 }
@@ -523,8 +545,8 @@ function settleSchedule() {
   toast('Đã xếp lại lịch: môn hạn gần vào trước; bình thường 2 giờ/môn/ngày, gần hạn thì nới lên.')
 }
 
-function syncCoursePlans(record) {
-  const plans = store.snapshot().plans.filter((plan) => plan.courseId === record.id)
+function syncCoursePlans(record, skipPlanId = '') {
+  const plans = store.snapshot().plans.filter((plan) => plan.courseId === record.id && plan.id !== skipPlanId)
   if (!plans.length) return
   let short = false
   for (const plan of plans) {
@@ -601,6 +623,7 @@ function rebuildAi() {
   ai.output = course.output || ''
   ai.start = course.start
   ai.date = course.end
+  ai.impactAck = false
   if (!ai.docIds?.length) ai.docIds = store.snapshot().documents.filter((doc) => doc.courseId === course.id).map((doc) => doc.id)
   queueSuggest()
 }
@@ -672,6 +695,23 @@ function confirmAi() {
   commitTypingHours(false)
   const review = reviewTasks(ai.tasks, aiData(), ai.deadline, ai.planId)
   if (review.bad) { render(); return }
+  // Editing a plan that no longer fits its course: suggest the AI rebuild once before saving it unchanged.
+  if (ai.planId && !ai.impactAck) {
+    const snap = store.snapshot()
+    const course = snap.courses.find((item) => item.id === ai.courseId)
+    const reasons = course ? courseWindowWarnings({ id: ai.planId, deadline: ai.deadline, tasks: ai.tasks }, course, snap, Date.now()) : []
+    if (reasons.length) {
+      ai.impactAck = true
+      modal = {
+        title: 'Kế hoạch vẫn chưa khớp với môn học',
+        body: `${reasons.join(' ')} Nên tạo lại bằng AI để xếp theo ngày của môn. Nếu vẫn muốn giữ như hiện tại, bấm "Xác nhận kế hoạch" lần nữa.`,
+        ok: 'Tạo lại bằng AI', cancel: 'Để tôi xem lại', danger: false,
+        run: () => rebuildAi(),
+      }
+      render()
+      return
+    }
+  }
   if (ai.deadline > Date.now() && review.open < 0.5) {
     toast('Giờ rảnh đến hạn kế hoạch đã được xếp hết nhiệm vụ. Hãy bổ sung thời gian rảnh.')
     return
@@ -1053,6 +1093,10 @@ function onClick(event) {
     return
   }
   if (act === 'ai-confirm') confirmAi()
+  if (act === 'course-fix-plan') {
+    const formEl = node.closest('form')
+    if (formEl && form) saveCourse(formFields(formEl), { fixPlanId: node.dataset.id })
+  }
   if (act === 'ai-compress') { compressPreview(); return }
   if (act === 'add-parent') { syncManualTasks(); manual.tasks.push(...newSection()); render() }
   if (act === 'add-child') addChild(node.dataset.id)
