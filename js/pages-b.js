@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, showDate } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=92'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=92'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=93'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=93'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -193,6 +193,7 @@ function aiReview(ctx) {
     back: '#/ke-hoach',
     foot: `<a class="btn btn-ghost" href="#/ke-hoach">Hủy</a><button class="btn btn-primary" type="button" data-act="ai-confirm" ${locked ? 'disabled' : ''}>${icon('check', 16)} Xác nhận kế hoạch</button>`,
     html: `${impactBanner(ghost, ctx, `<button class="btn btn-primary" type="button" data-act="ai-rebuild">${icon('sparkles', 16)} Tạo lại bằng AI</button>`)}
+      ${ctx.pendingCourse ? `<p class="empty-note">Thay đổi của môn ${esc(ctx.pendingCourse.name || '')} (${showDate(ctx.pendingCourse.start)} – ${showDate(ctx.pendingCourse.end)}) chưa được lưu. Bấm “Xác nhận kế hoạch” để lưu cả môn học và kế hoạch, bấm “Hủy” để giữ nguyên môn học.</p>` : ''}
       <div class="placed-row">
         ${ok ? `<span class="placed-chip">${icon('check', 14)} Đã xếp ${formatHours(review.placed)} giờ</span>` : ''}
         ${ai.deadline ? `<span class="free-chip${freeLeft < 1 ? ' low' : ''}">${icon('clock', 14)} Còn ${formatHours(freeLeft)} giờ rảnh đến hạn ${formatWhen(ai.deadline)}</span>` : ''}

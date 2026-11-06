@@ -3,14 +3,14 @@ import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
   batchHoursOf, deadlineMilestones, noticeDue,
-} from './model.js?v=92'
+} from './model.js?v=93'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=92'
-import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=92'
-import { esc, icon, logo } from './html.js?v=92'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=92'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=92'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=92'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=93'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=93'
+import { esc, icon, logo } from './html.js?v=93'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=93'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=93'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=93'
 
 const store = createStore()
 const NAV = [
@@ -32,6 +32,7 @@ let form = null
 let formKey = ''
 let ai = null
 let aiKey = ''
+let pendingCourse = null // { planId, course }: course edit waiting to be saved with that plan's "Xác nhận kế hoạch"
 let manual = null
 let manualKey = ''
 let aiTimer = 0
@@ -181,6 +182,8 @@ function newSection() {
 }
 
 function prepare() {
+  // Leaving the plan screen without confirming drops the pending course change.
+  if (pendingCourse && !(route.name === 'ai' && route.query.sua === pendingCourse.planId)) pendingCourse = null
   const data = store.current() ? store.snapshot() : null
   if (route.name === 'course-new' && formKey !== 'course-new') { form = blankCourse(); formKey = 'course-new' }
   else if (route.name === 'course-edit' && formKey !== `c:${route.id}` && data) {
@@ -244,7 +247,7 @@ function manualFromPlan(plan) {
 function context() {
   const now = Date.now()
   const user = store.current()
-  const data = store.snapshot()
+  const data = withPending(store.snapshot())
   const view = buildView(data, now)
   return {
     now, user, data, view, route, query: route.query, unread: store.unread(now),
@@ -254,6 +257,7 @@ function context() {
     aiOn: aiReady(aiLive),
     chatBusy,
     aiHistory,
+    pendingCourse: pendingCourse && route.name === 'ai' && route.query.sua === pendingCourse.planId ? pendingCourse.course : null,
     taskBack,
   }
 }
@@ -491,19 +495,34 @@ function saveCourse(fields, opts = {}) {
     render()
     return
   }
-  const { isNew, record } = store.saveCourse(form)
-  const shifted = !isNew && before && (before.start !== record.start || before.end !== record.end || String(before.output || '').trim() !== record.output)
-  const classChanged = !isNew && before && JSON.stringify(before.schedule || []) !== JSON.stringify(record.schedule || [])
-  if (shifted) syncCoursePlans(record, opts.fixPlanId || '')
-  else if (classChanged) reindexPlans()
   formKey = ''
   if (opts.fixPlanId) {
+    // Not saved yet: the course change waits on the plan screen and is saved only with "Xác nhận kế hoạch".
+    pendingCourse = { planId: opts.fixPlanId, course: { ...form, errors: {} } }
     aiKey = ''
     navigate(`#/ke-hoach/ai?sua=${opts.fixPlanId}`)
     return
   }
+  const { isNew, record } = commitCourse(form, before)
   navigate(`#/mon/${record.id}`)
   if (isNew) toast('Tạo kế hoạch bằng AI cho môn này?', { label: 'Tạo ngay', run: () => navigate(`#/ke-hoach/ai?mon=${record.id}`) })
+}
+
+// Saves a course and brings its plans in line (all of them except skipPlanId).
+function commitCourse(values, before, skipPlanId = '') {
+  const { isNew, record } = store.saveCourse(values)
+  const shifted = !isNew && before && (before.start !== record.start || before.end !== record.end || String(before.output || '').trim() !== record.output)
+  const classChanged = !isNew && before && JSON.stringify(before.schedule || []) !== JSON.stringify(record.schedule || [])
+  if (shifted) syncCoursePlans(record, skipPlanId)
+  else if (classChanged) reindexPlans()
+  return { isNew, record }
+}
+
+// While a course change is pending for the plan being edited, every view of that plan uses the new course values.
+function withPending(data) {
+  if (!pendingCourse || !data || route.name !== 'ai' || route.query.sua !== pendingCourse.planId) return data
+  const id = pendingCourse.course.id
+  return { ...data, courses: data.courses.map((item) => (item.id === id ? { ...item, ...pendingCourse.course } : item)) }
 }
 
 function reindexPlans() {
@@ -602,7 +621,7 @@ function startAi(fields, formEl) {
 
 function rebuildAi() {
   if (!ai?.courseId) return
-  const course = store.snapshot().courses.find((item) => item.id === ai.courseId)
+  const course = withPending(store.snapshot()).courses.find((item) => item.id === ai.courseId)
   if (!course) { toast('Không thấy môn học'); return }
   ai.output = course.output || ''
   ai.start = course.start
@@ -615,7 +634,7 @@ function rebuildAi() {
 // when no key is set, so the built-in estimator in model.js is used instead.
 async function fetchAiPlan(signal) {
   if (!aiReady(aiLive)) return null
-  const fresh = store.snapshot()
+  const fresh = withPending(store.snapshot())
   const course = fresh.courses.find((item) => item.id === ai.courseId)
   const picked = fresh.documents.filter((doc) => (ai.docIds || []).includes(doc.id)).slice(0, 4)
   const docs = (await Promise.all(picked.map(readCorpusItem)))
@@ -656,7 +675,7 @@ function queueSuggest() {
     window.clearTimeout(timer)
     if (!ai || ai.step !== 2 || run !== planRun) return
     window.clearInterval(aiTimer)
-    const fresh = store.snapshot()
+    const fresh = withPending(store.snapshot())
     const course = fresh.courses.find((item) => item.id === ai.courseId)
     const docs = fresh.documents.filter((doc) => (ai.docIds || []).includes(doc.id))
     const deadline = atTime(ai.date, parseTime(ai.time) || '23:59')
@@ -679,7 +698,7 @@ function confirmAi() {
   const review = reviewTasks(ai.tasks, aiData(), ai.deadline, ai.planId)
   if (review.bad) { render(); return }
   // Tasks outside the course's dates: the red notes under them say so; never save the plan like that.
-  const course = store.snapshot().courses.find((item) => item.id === ai.courseId)
+  const course = withPending(store.snapshot()).courses.find((item) => item.id === ai.courseId)
   if (course?.start && course?.end) {
     const from = atTime(course.start, '00:00')
     const until = atTime(course.end, '23:59')
@@ -689,6 +708,12 @@ function confirmAi() {
   if (ai.deadline > Date.now() && review.open < 0.5) {
     toast('Giờ rảnh đến hạn kế hoạch đã được xếp hết nhiệm vụ. Hãy bổ sung thời gian rảnh.')
     return
+  }
+  // The course change that sent the user here is saved together with the plan.
+  if (pendingCourse && pendingCourse.planId === ai.planId) {
+    const before = store.snapshot().courses.find((item) => item.id === pendingCourse.course.id)
+    commitCourse(pendingCourse.course, before, ai.planId)
+    pendingCourse = null
   }
   const previous = ai.planId ? store.snapshot().plans.find((item) => item.id === ai.planId) : null
   const built = {
@@ -1185,7 +1210,7 @@ function moveTask(id) {
 }
 
 function aiData() {
-  const data = store.snapshot()
+  const data = withPending(store.snapshot())
   const course = data.courses.find((item) => item.id === ai?.courseId)
   const floor = course?.start ? atTime(course.start, '00:00') : 0
   return { ...data, floor, displaceAfter: ai?.deadline || 0 }
