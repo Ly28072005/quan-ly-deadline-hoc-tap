@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, showDate } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=94'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=94'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=95'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=95'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
