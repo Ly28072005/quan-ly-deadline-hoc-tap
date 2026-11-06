@@ -3,14 +3,14 @@ import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
   batchHoursOf, deadlineMilestones, noticeDue,
-} from './model.js?v=91'
+} from './model.js?v=92'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=91'
-import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=91'
-import { esc, icon, logo } from './html.js?v=91'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=91'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=91'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=91'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=92'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=92'
+import { esc, icon, logo } from './html.js?v=92'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=92'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=92'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=92'
 
 const store = createStore()
 const NAV = [
@@ -32,7 +32,6 @@ let form = null
 let formKey = ''
 let ai = null
 let aiKey = ''
-let impactPrompt = '' // plan id to warn about when its edit page opens (set after a course change)
 let manual = null
 let manualKey = ''
 let aiTimer = 0
@@ -195,20 +194,6 @@ function prepare() {
     if (route.query.sua) {
       const plan = data.plans.find((item) => item.id === route.query.sua)
       ai = plan ? aiFromPlan(plan) : blankAi(data)
-      // Arrived from a course change that broke this plan: say so and offer an AI rebuild right away.
-      if (plan && impactPrompt === plan.id) {
-        impactPrompt = ''
-        const course = data.courses.find((item) => item.id === plan.courseId)
-        const reasons = course ? courseWindowWarnings(plan, course, data, Date.now()) : []
-        if (reasons.length) {
-          modal = {
-            title: 'Kế hoạch không còn khớp với môn học',
-            body: `${reasons.join(' ')} Tạo lại bằng AI để chia và xếp nhiệm vụ theo ngày mới của môn?`,
-            ok: 'Tạo lại bằng AI', cancel: 'Tự chỉnh sửa', danger: false,
-            run: () => rebuildAi(),
-          }
-        }
-      }
     } else ai = blankAi(data)
     aiKey = `ai:${route.query.mon || ''}:${route.query.sua || ''}`
   }
@@ -513,7 +498,6 @@ function saveCourse(fields, opts = {}) {
   else if (classChanged) reindexPlans()
   formKey = ''
   if (opts.fixPlanId) {
-    impactPrompt = opts.fixPlanId
     aiKey = ''
     navigate(`#/ke-hoach/ai?sua=${opts.fixPlanId}`)
     return
@@ -623,7 +607,6 @@ function rebuildAi() {
   ai.output = course.output || ''
   ai.start = course.start
   ai.date = course.end
-  ai.impactAck = false
   if (!ai.docIds?.length) ai.docIds = store.snapshot().documents.filter((doc) => doc.courseId === course.id).map((doc) => doc.id)
   queueSuggest()
 }
@@ -695,22 +678,13 @@ function confirmAi() {
   commitTypingHours(false)
   const review = reviewTasks(ai.tasks, aiData(), ai.deadline, ai.planId)
   if (review.bad) { render(); return }
-  // Editing a plan that no longer fits its course: suggest the AI rebuild once before saving it unchanged.
-  if (ai.planId && !ai.impactAck) {
-    const snap = store.snapshot()
-    const course = snap.courses.find((item) => item.id === ai.courseId)
-    const reasons = course ? courseWindowWarnings({ id: ai.planId, deadline: ai.deadline, tasks: ai.tasks }, course, snap, Date.now()) : []
-    if (reasons.length) {
-      ai.impactAck = true
-      modal = {
-        title: 'Kế hoạch vẫn chưa khớp với môn học',
-        body: `${reasons.join(' ')} Nên tạo lại bằng AI để xếp theo ngày của môn. Nếu vẫn muốn giữ như hiện tại, bấm "Xác nhận kế hoạch" lần nữa.`,
-        ok: 'Tạo lại bằng AI', cancel: 'Để tôi xem lại', danger: false,
-        run: () => rebuildAi(),
-      }
-      render()
-      return
-    }
+  // Tasks outside the course's dates: the red notes under them say so; never save the plan like that.
+  const course = store.snapshot().courses.find((item) => item.id === ai.courseId)
+  if (course?.start && course?.end) {
+    const from = atTime(course.start, '00:00')
+    const until = atTime(course.end, '23:59')
+    const outside = leafTasks(ai.tasks).some((task) => task.status !== 'done' && ((task.end && task.end > until) || (task.start && task.start < from)))
+    if (outside) { toast('Còn nhiệm vụ nằm ngoài ngày của môn. Bấm "Tạo lại bằng AI" hoặc dời các nhiệm vụ đó.'); return }
   }
   if (ai.deadline > Date.now() && review.open < 0.5) {
     toast('Giờ rảnh đến hạn kế hoạch đã được xếp hết nhiệm vụ. Hãy bổ sung thời gian rảnh.')

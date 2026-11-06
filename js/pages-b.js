@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, showDate } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=91'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=91'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=92'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=92'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -164,7 +164,13 @@ export function renderAi(ctx) {
 
 function aiReview(ctx) {
   const ai = ctx.ai
-  ctx = { ...ctx, data: { ...ctx.data, displaceAfter: ai.deadline || 0 } }
+  const planCourse = (ctx.data.courses || []).find((item) => item.id === ai.courseId)
+  const courseWindow = planCourse?.start && planCourse?.end ? { start: atTime(planCourse.start, '00:00'), end: atTime(planCourse.end, '23:59') } : null
+  ctx = { ...ctx, data: { ...ctx.data, displaceAfter: ai.deadline || 0, courseWindow } }
+  // Open tasks outside the course's dates block confirming until they are moved or rebuilt.
+  const outside = courseWindow
+    ? leafTasks(ai.tasks).filter((task) => task.status !== 'done' && ((task.end && task.end > courseWindow.end) || (task.start && task.start < courseWindow.start))).length
+    : 0
   const review = reviewTasks(ai.tasks, ctx.data, ai.deadline, ai.planId)
   const ghost = aiPlan(ctx)
   const load = scheduleLoad({
@@ -176,8 +182,8 @@ function aiReview(ctx) {
     // displaceAfter = deadline + 1: plans due later will be moved, but this draft (due exactly then) still counts.
     ? openHours({ ...ctx.data, plans: [...ctx.data.plans.filter((plan) => plan.id !== ai.planId), ghost].filter(Boolean) }, ctx.now, ai.deadline, '', ai.deadline + 1)
     : 0
-  const locked = review.bad > 0
-  const ok = review.tone === 'ok' && !load.short && !review.short
+  const locked = review.bad > 0 || outside > 0
+  const ok = review.tone === 'ok' && !load.short && !review.short && !outside
   const tone = review.tone === 'bad' ? 'bad' : 'warn'
   const extraCodes = review.rows.flatMap((row) => row.warnings.map((item) => item.code)).filter((code) => !['hours', 'free', 'missing', 'past'].includes(code))
   const onlyHoursFree = !extraCodes.length && review.rows.some((row) => row.warnings.length)
@@ -294,6 +300,13 @@ function taskEditor(task, index, tasks, data, deadline, ignorePlanId, planShort 
 
   if (!zeroHours && task.userAdjustedHours && hours > rec + 0.05) {
     alertList.push(`<div class="alert-strip info">🤖 Gợi ý AI: Nhiệm vụ “${esc(task.name)}” theo độ khó chỉ cần khoảng ${formatHours(rec)} giờ làm.<button type="button" data-act="ai-set-hours" data-id="${task.id}" data-hours="${rec}">Đặt ${formatHours(rec)} giờ</button></div>`)
+  }
+  // Task falls outside the course's dates (e.g. the course end moved earlier): red note + AI rebuild.
+  const span = data.courseWindow
+  if (span && task.status !== 'done') {
+    const rebuild = '<button type="button" data-act="ai-rebuild">Tạo lại bằng AI</button>'
+    if (task.end && task.end > span.end) alertList.push(`<div class="alert-strip bad">Nhiệm vụ kết thúc sau ngày kết thúc môn ${formatDMY(span.end)}.${rebuild}</div>`)
+    else if (task.start && task.start < span.start) alertList.push(`<div class="alert-strip bad">Nhiệm vụ bắt đầu trước ngày bắt đầu môn ${formatDMY(span.start)}.${rebuild}</div>`)
   }
 
   const strips = alertList.join('')
