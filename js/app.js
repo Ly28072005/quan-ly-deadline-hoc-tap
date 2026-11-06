@@ -3,14 +3,14 @@ import {
   buildView, chatReply, classIntervals, classifyChat, compressFarBuffers, courseWindowWarnings, findWindow, hasScheduleIssue, hourHardError, isParent, leafTasks, openHours, planStats, proposeFix, pruneClassClashes,
   alignCourseSchedule, applyHoursChange, placeTaskWindow, previewReflow, reflowAll, reviewTasks, scheduleClash, scheduleLoad, shortPlans, suggestPlan, validateCourse, validateManual, reseatLater, taskHours,
   batchHoursOf, deadlineMilestones, noticeDue,
-} from './model.js?v=96'
+} from './model.js?v=97'
 import { atTime, clock, dateISO, dayPart, fold, formatHours, givenName, isoOf, parseTime, showDate, uid } from './format.js'
-import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=96'
-import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=96'
-import { esc, icon, logo } from './html.js?v=96'
-import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=96'
-import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=96'
-import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=96'
+import { extractFileText, fileKind, loadBlob, removeBlob, saveBlob } from './files.js?v=97'
+import { aiReady, askAi, askPlan, blobToJpeg, blobToPdf, buildTutorPayload, geminiKey, probeAi, setGeminiKey, testGeminiKey } from './claude.js?v=97'
+import { esc, icon, logo } from './html.js?v=97'
+import { renderAuth, renderCourseDetail, renderCourseForm, renderCourses, renderDocs, renderHome } from './pages-a.js?v=97'
+import { deadlineOf, manualIssues, materialize, renderAi, renderManual, renderPlanDetail, renderPlans } from './pages-b.js?v=97'
+import { drawerHtml, renderCalendar, renderFree, renderNotice, renderNotices, renderSettings, renderTask } from './pages-c.js?v=97'
 
 const store = createStore()
 const NAV = [
@@ -1093,8 +1093,11 @@ function onClick(event) {
   }
   if (act === 'ai-confirm') confirmAi()
   if (act === 'course-fix-plan') {
+    // Inside the course form: hold the unsaved course change and open the plan.
+    // On the course page (nothing unsaved): just open the plan for editing.
     const formEl = node.closest('form')
     if (formEl && form) saveCourse(formFields(formEl), { fixPlanId: node.dataset.id })
+    else { aiKey = ''; navigate(`#/ke-hoach/ai?sua=${node.dataset.id}`) }
   }
   if (act === 'ai-compress') { compressPreview(); return }
   if (act === 'add-parent') { syncManualTasks(); manual.tasks.push(...newSection()); render() }
