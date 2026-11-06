@@ -1,6 +1,6 @@
 import { atTime, clock, dateISO, formatDMY, formatHours, formatSession, formatSpan, formatWhen, isoOf, showDate } from './format.js'
-import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=97'
-import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=97'
+import { STATUS, courseWindowWarnings, isParent, leafTasks, openHours, parseOutput, planStats, proposeFix, recommendedHoursForTask, reviewTasks, scheduleLoad, sentenceCase, taskHours, taskStatus } from './model.js?v=98'
+import { accent, banner, dateBox, dot, empty, esc, field, icon, initials, opts, pill, progress, timeBox, wrapDate } from './html.js?v=98'
 
 const ORDER = { overdue: 0, doing: 1, todo: 2, done: 3 }
 
@@ -177,11 +177,15 @@ function aiReview(ctx) {
     ...ctx.data,
     plans: [...ctx.data.plans.filter((plan) => plan.id !== ai.planId), ghost].filter(Boolean),
   }, ctx.now)
-  // Free time left from right now to this plan's deadline, after everything already on the calendar:
-  // class hours, every other course's scheduled tasks (whatever their deadline) and this draft's tasks.
-  const freeLeft = ai.deadline > ctx.now
-    ? openHours({ ...ctx.data, plans: [...ctx.data.plans.filter((plan) => plan.id !== ai.planId), ghost].filter(Boolean) }, ctx.now, ai.deadline, '', 0)
+  // Free time from right now to this plan's deadline (minus class hours and every other course's scheduled tasks),
+  // minus the hours this plan still needs. Follows the +/− steppers, even for tasks that found no slot yet.
+  const freeBase = ai.deadline > ctx.now
+    ? openHours({ ...ctx.data, plans: ctx.data.plans.filter((plan) => plan.id !== ai.planId) }, ctx.now, ai.deadline, '', 0)
     : 0
+  const stillNeed = leafTasks(ai.tasks)
+    .filter((task) => task.status !== 'done' && !(task.end && task.end <= ctx.now))
+    .reduce((sum, task) => sum + (Number(task.hours) || 0), 0)
+  const freeLeft = Math.round((freeBase - stillNeed) * 2) / 2
   const locked = review.bad > 0 || outside > 0
   const ok = review.tone === 'ok' && !load.short && !review.short && !outside
   const tone = review.tone === 'bad' ? 'bad' : 'warn'
@@ -195,7 +199,7 @@ function aiReview(ctx) {
     html: `${impactBanner(ghost, ctx, `<button class="btn btn-primary" type="button" data-act="ai-rebuild">${icon('sparkles', 16)} Tạo lại bằng AI</button>`)}
       <div class="placed-row">
         ${ok ? `<span class="placed-chip">${icon('check', 14)} Đã xếp ${formatHours(review.placed)} giờ</span>` : ''}
-        ${ai.deadline ? `<span class="free-chip${freeLeft < 1 ? ' low' : ''}">${icon('clock', 14)} Còn ${formatHours(freeLeft)} giờ rảnh đến hạn ${formatWhen(ai.deadline)}</span>` : ''}
+        ${ai.deadline ? `<span class="free-chip${freeLeft < 1 ? ' low' : ''}">${icon('clock', 14)} ${freeLeft >= 0 ? `Còn ${formatHours(freeLeft)} giờ rảnh` : `Thiếu ${formatHours(-freeLeft)} giờ rảnh`} đến hạn ${formatWhen(ai.deadline)}</span>` : ''}
       </div>
       ${Number(ai.displaced) > 0 ? '<p class="fine">Khi xác nhận, lịch các môn hạn xa hơn sẽ được xếp lại để xen kẽ với môn hạn sớm.</p>' : ''}
       ${load.short ? banner('bad', `Thiếu ${formatHours(load.delta)} giờ rảnh`, `Cần ${formatHours(load.need)} giờ, quỹ rảnh còn ${formatHours(load.open)} giờ. Hãy thêm giờ rảnh, hệ thống sẽ xếp vào khung trống còn lại.`, addFree) : ''}
